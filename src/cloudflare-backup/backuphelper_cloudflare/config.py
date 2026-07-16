@@ -63,6 +63,10 @@ class CloudflareConfig:
     resource_types: list[str] = field(default_factory=list)          # zone-level override
     account_resource_types: list[str] = field(default_factory=list)  # account-level override
     deny_types: list[str] = field(default_factory=list)              # added to the built-in deny-list
+    # Per-type explicit ids for types that cannot be swept (cf-terraforming
+    # --resource-id), e.g. {"cloudflare_zone_setting": ["ssl", "brotli"]}.
+    # Empty for a type → the built-in RESOURCE_ID_DEFAULTS apply.
+    resource_ids: dict = field(default_factory=dict)
 
     # Tooling.
     provider_version: str = DEFAULT_PROVIDER_VERSION
@@ -120,6 +124,10 @@ class CloudflareConfig:
         if isinstance(zones, str) and zones.strip().lower() != "auto":
             zones = _as_list(zones)
 
+        raw_ids = s.get("resource_ids") or {}
+        resource_ids = ({str(k): _as_list(v) for k, v in raw_ids.items()}
+                        if isinstance(raw_ids, dict) else {})
+
         try:
             throttle = float(s.get("throttle_rps", 4.0))
         except (TypeError, ValueError) as exc:
@@ -137,6 +145,7 @@ class CloudflareConfig:
             resource_types=_as_list(s.get("resource_types")),
             account_resource_types=_as_list(s.get("account_resource_types")),
             deny_types=_as_list(s.get("deny_types")),
+            resource_ids=resource_ids,
             provider_version=str(s.get("provider_version", DEFAULT_PROVIDER_VERSION)),
             required_version=str(s.get("required_version", DEFAULT_REQUIRED_VERSION)),
             tofu_binary=str(s.get("tofu_binary", "tofu")),

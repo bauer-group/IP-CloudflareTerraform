@@ -73,6 +73,48 @@ ACCOUNT_SCOPED_TYPES: frozenset[str] = frozenset(ACCOUNT_RESOURCE_TYPES) | {
     "cloudflare_zero_trust_list",
 }
 
+# Editable zone settings. `cloudflare_zone_setting` cannot be swept — each
+# setting is a separate resource keyed by its name, so cf-terraforming needs
+# them named via `--resource-id cloudflare_zone_setting=<ids>`. Curated to
+# settings available on standard plans (plan-restricted ones like `waf`,
+# `image_resizing`, `ciphers` are omitted so the batch call does not fail).
+# Override per deployment with `resource_ids` in the source config.
+ZONE_SETTING_IDS: tuple[str, ...] = (
+    "always_online",
+    "always_use_https",
+    "automatic_https_rewrites",
+    "brotli",
+    "browser_cache_ttl",
+    "browser_check",
+    "cache_level",
+    "challenge_ttl",
+    "development_mode",
+    "early_hints",
+    "email_obfuscation",
+    "hotlink_protection",
+    "http3",
+    "ip_geolocation",
+    "ipv6",
+    "min_tls_version",
+    "opportunistic_encryption",
+    "origin_error_page_pass_thru",
+    "rocket_loader",
+    "security_header",
+    "security_level",
+    "server_side_exclude",
+    "sort_query_string_for_cache",
+    "ssl",
+    "tls_1_3",
+    "websockets",
+    "0rtt",
+)
+
+# Resource types that require explicit ids (cf-terraforming --resource-id),
+# with their default id list. Overridden per type by config `resource_ids`.
+RESOURCE_ID_DEFAULTS: dict[str, tuple[str, ...]] = {
+    "cloudflare_zone_setting": ZONE_SETTING_IDS,
+}
+
 # Types known to emit HCL that does not round-trip cleanly or is not worth
 # capturing by default. Merged with the per-deployment `deny_types`.
 DEFAULT_DENY_TYPES: frozenset[str] = frozenset()

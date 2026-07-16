@@ -37,6 +37,7 @@ from .config import CloudflareConfig
 from .resources import (
     ACCOUNT_RESOURCE_TYPES,
     DEFAULT_DENY_TYPES,
+    RESOURCE_ID_DEFAULTS,
     SECRET_BEARING_TYPES,
     ZONE_RESOURCE_TYPES,
     classify_scope,
@@ -195,11 +196,15 @@ def export(
                 result.skipped_unknown.append(resource_type)
                 log.info("skip %s: not in provider schema", resource_type)
                 return
+            # Types that cannot be swept (e.g. cloudflare_zone_setting) need
+            # explicit ids: config override first, else the built-in defaults.
+            ids = cfg.resource_ids.get(resource_type) or list(
+                RESOURCE_ID_DEFAULTS.get(resource_type, ()))
             try:
                 hcl = cfterraforming.generate(
                     binary=cfg.cfterraforming_binary, resource_type=resource_type, scope=scope,
                     scope_id=scope_id, install_path=workdir, tofu_binary=tofu_bin_abs,
-                    env=proc_env, timeout=cfg.timeout, run=run_cf)
+                    env=proc_env, resource_ids=ids, timeout=cfg.timeout, run=run_cf)
             except cfterraforming.CfTerraformingError as exc:
                 reason = cfterraforming.benign_skip_reason(exc.stderr)
                 if reason:
@@ -225,7 +230,8 @@ def export(
                     blocks = cfterraforming.import_blocks(
                         binary=cfg.cfterraforming_binary, resource_type=resource_type, scope=scope,
                         scope_id=scope_id, install_path=workdir, tofu_binary=tofu_bin_abs,
-                        env=proc_env, modern_import_block=True, timeout=cfg.timeout, run=run_cf)
+                        env=proc_env, resource_ids=ids, modern_import_block=True,
+                        timeout=cfg.timeout, run=run_cf)
                     if cfterraforming.has_content(blocks):
                         with (target_dir / "imports.tf").open("a", encoding="utf-8") as fh:
                             fh.write(blocks.rstrip() + "\n")

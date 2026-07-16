@@ -36,18 +36,24 @@ def _base_argv(
     scope_id: str,
     install_path: Path,
     tofu_binary: str,
+    resource_ids: Optional[list[str]] = None,
 ) -> list[str]:
     try:
         scope_flag = _SCOPE_FLAG[scope]
     except KeyError as exc:
         raise ValueError(f"scope must be zone|account, got {scope!r}") from exc
-    return [
+    argv = [
         binary, subcommand,
         "--resource-type", resource_type,
         scope_flag, scope_id,
         "--terraform-binary-path", tofu_binary,
         "--terraform-install-path", str(install_path),
     ]
+    # Types that cannot be swept (e.g. cloudflare_zone_setting) need their ids
+    # named: --resource-id <type>=<id1>,<id2>,...
+    if resource_ids:
+        argv += ["--resource-id", f"{resource_type}={','.join(resource_ids)}"]
+    return argv
 
 
 def _decode(raw: object) -> str:
@@ -65,12 +71,14 @@ def generate(
     install_path: Path,
     tofu_binary: str,
     env: Mapping[str, str],
+    resource_ids: Optional[list[str]] = None,
     timeout: int = 900,
     run: RunFn = subprocess.run,
 ) -> str:
     """Return generated HCL for ``resource_type``. Raises on non-zero exit."""
     argv = _base_argv("generate", binary=binary, resource_type=resource_type, scope=scope,
-                      scope_id=scope_id, install_path=install_path, tofu_binary=tofu_binary)
+                      scope_id=scope_id, install_path=install_path, tofu_binary=tofu_binary,
+                      resource_ids=resource_ids)
     result = run(argv, env=dict(env), capture_output=True, timeout=timeout)
     if result.returncode != 0:
         stderr = _decode(result.stderr).strip()
@@ -91,13 +99,15 @@ def import_blocks(
     install_path: Path,
     tofu_binary: str,
     env: Mapping[str, str],
+    resource_ids: Optional[list[str]] = None,
     modern_import_block: bool = True,
     timeout: int = 900,
     run: RunFn = subprocess.run,
 ) -> str:
     """Return ``import{}`` blocks (or terraform-import commands) for a type."""
     argv = _base_argv("import", binary=binary, resource_type=resource_type, scope=scope,
-                      scope_id=scope_id, install_path=install_path, tofu_binary=tofu_binary)
+                      scope_id=scope_id, install_path=install_path, tofu_binary=tofu_binary,
+                      resource_ids=resource_ids)
     if modern_import_block:
         argv.append("--modern-import-block")
     result = run(argv, env=dict(env), capture_output=True, timeout=timeout)

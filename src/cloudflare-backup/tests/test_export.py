@@ -113,6 +113,22 @@ def test_secrets_report_populated(tmp_path):
     assert result.secrets_report[0]["resource_type"] == "cloudflare_zero_trust_access_service_token"
 
 
+def test_zone_setting_uses_default_resource_ids(tmp_path):
+    # cloudflare_zone_setting can't be swept — export must pass --resource-id
+    # with the built-in setting id list, and write the file.
+    cfg = _cfg(resource_types="cloudflare_zone_setting", account_resource_types="")
+    record: list = []
+    export(cfg, tmp_path / "out", env=ENV,
+           run_tofu=make_tofu_run({"cloudflare_zone_setting"}),
+           run_cf=make_cf_run({"cloudflare_zone_setting": "resource x {}"}, record=record),
+           fetch=make_fetch([zone_page([("z1", "a.com", "acct1")])]), sleep=lambda s: None)
+    gen = [a for a in record if len(a) > 1 and a[1] == "generate"][0]
+    val = gen[gen.index("--resource-id") + 1]
+    assert val.startswith("cloudflare_zone_setting=")
+    assert "ssl" in val and "min_tls_version" in val
+    assert (tmp_path / "out" / "zones" / "a.com" / "cloudflare_zone_setting.tf").exists()
+
+
 def test_export_passes_absolute_tofu_binary_path(tmp_path):
     # Regression: cf-terraforming --terraform-binary-path must be absolute
     # (it stats the literal value, it does not search PATH).

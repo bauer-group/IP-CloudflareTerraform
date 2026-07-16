@@ -57,6 +57,19 @@ def test_resolve_token_missing_raises():
         cfg.resolve_token({})
 
 
+def test_resource_ids_parsed_from_csv_and_list():
+    cfg = CloudflareConfig.from_spec({
+        "type": "cloudflare",
+        "resource_ids": {"cloudflare_zone_setting": "ssl,brotli", "x": ["a", "b"]},
+    })
+    assert cfg.resource_ids["cloudflare_zone_setting"] == ["ssl", "brotli"]
+    assert cfg.resource_ids["x"] == ["a", "b"]
+
+
+def test_resource_ids_default_empty():
+    assert CloudflareConfig.from_spec({"type": "cloudflare"}).resource_ids == {}
+
+
 def test_tofu_binary_path_absolute_passthrough():
     cfg = CloudflareConfig.from_spec({"type": "cloudflare", "tofu_binary": "/usr/local/bin/tofu"})
     assert cfg.tofu_binary_path() == "/usr/local/bin/tofu"

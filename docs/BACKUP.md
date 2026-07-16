@@ -36,6 +36,16 @@ The `cloudflare` source enumerates **zones** via the Cloudflare API and runs
 Override per deployment in the source config:
 `resource_types`, `account_resource_types`, `deny_types`.
 
+**Zone settings** (`cloudflare_zone_setting`) can't be swept — cf-terraforming
+needs each setting named. The source exports a curated default set of common,
+plan-agnostic settings (SSL/TLS, HTTPS, caching, security level, …) via
+`--resource-id`. Customize per type with `resource_ids` in the source config:
+
+```json
+{ "type": "cloudflare",
+  "resource_ids": { "cloudflare_zone_setting": ["ssl", "min_tls_version", "brotli", "http3"] } }
+```
+
 ## Configuration
 
 Config is inline `BACKUP_CONFIG_JSON` in `docker-compose.yml`, fed from `.env`.
@@ -57,7 +67,7 @@ config). Use a **read-only** token here (Zone/DNS/Account/Workers/Access *Read*)
 
 ## Retention (30 days + GFS)
 
-```
+```jsonc
 retention: { age_days: 30, gfs: { daily: 7, weekly: 4, monthly: 6 } }
 ```
 

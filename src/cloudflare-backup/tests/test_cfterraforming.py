@@ -41,6 +41,25 @@ def test_generate_raises_on_failure():
                      tofu_binary="tofu", env={}, run=run)
 
 
+def test_generate_with_resource_ids_appends_flag():
+    record: list = []
+    run = make_cf_run({"cloudflare_zone_setting": "resource ..."}, record=record)
+    cft.generate(binary="cf-terraforming", resource_type="cloudflare_zone_setting",
+                 scope="zone", scope_id="z1", install_path=Path("/wd"), tofu_binary="/tofu",
+                 env={}, resource_ids=["ssl", "brotli"], run=run)
+    argv = record[0]
+    assert argv[argv.index("--resource-id") + 1] == "cloudflare_zone_setting=ssl,brotli"
+
+
+def test_generate_without_resource_ids_omits_flag():
+    record: list = []
+    run = make_cf_run({"cloudflare_dns_record": "x"}, record=record)
+    cft.generate(binary="cf-terraforming", resource_type="cloudflare_dns_record",
+                 scope="zone", scope_id="z1", install_path=Path("/wd"), tofu_binary="/tofu",
+                 env={}, run=run)
+    assert "--resource-id" not in record[0]
+
+
 def test_import_blocks_modern_flag():
     record: list = []
     run = make_cf_run({"cloudflare_dns_record": "x"}, record=record)
