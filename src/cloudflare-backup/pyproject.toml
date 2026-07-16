@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "backuphelper-cloudflare"
+version = "0.0.0"
+description = "Cloudflare cf-terraforming backup source + diff/apply/drift command plugins for the BAUER GROUP BackupHelper engine"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "Karl Bauer", email = "kb@de.bauer-group.com" }]
+# Runtime note: `backuphelper` (the engine) and `typer`/`pydantic` are provided
+# by the base image (ghcr.io/bauer-group/cs-backuphelper/backuphelper). They are
+# intentionally NOT listed as install_requires so `pip install .` inside the
+# meta image reuses the engine's already-installed copies rather than pulling a
+# second one. cf-terraforming + tofu are binaries baked into the image, not deps.
+dependencies = []
+
+[project.optional-dependencies]
+test = ["pytest>=8.2"]
+
+# The Cloudflare backup source: enumerated by the engine's plugin registry.
+[project.entry-points."backuphelper.sources"]
+cloudflare = "backuphelper_cloudflare.source:CloudflareSource"
+
+# The `cloudflare` operator command group (diff / apply / drift / export),
+# mounted under the engine CLI as `backuphelper cloudflare <verb>`.
+[project.entry-points."backuphelper.commands"]
+cloudflare = "backuphelper_cloudflare.commands:app"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["backuphelper_cloudflare*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra"

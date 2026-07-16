@@ -1,0 +1,46 @@
+# =============================================================================
+# CloudflareTerraform — Git ignore
+# =============================================================================
+
+# Secrets / environment — NEVER commit (templates are tracked, see .env.example)
+.env
+.env.*
+!.env.example
+!.env.template
+*.bak
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+.mypy_cache/
+.ruff_cache/
+build/
+dist/
+
+# Local data / generated artefacts
+/data/
+# ad-hoc `cloudflare export --out` output — contains real account HCL, never commit
+/probe/
+scratch/
+tmp/
+*.tar.gz
+!**/testdata/**/*.tar.gz
+
+# Terraform / OpenTofu (state contains secrets — never commit)
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+# .terraform.lock.hcl is committed DELIBERATELY (reproducible provider versions)
+
+# Editor / OS
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+Thumbs.db

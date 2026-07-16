@@ -1,0 +1,24 @@
+{
+  "$schema": "https://raw.githubusercontent.com/bauer-group/automation-templates/main/.github/config/docker-base-image-monitor/docker-base-images.schema.json",
+  "_description": "CloudflareTerraform — upstream images consumed by the cloudflare-backup meta image. The monitor tracks digests on floating tags and triggers a release when an upstream image moves.",
+  "images": [
+    {
+      "name": "backuphelper",
+      "image": "ghcr.io/bauer-group/cs-backuphelper/backuphelper",
+      "tag": "latest",
+      "variable": "BACKUPHELPER_LATEST_DIGEST",
+      "description": "Central BackupHelper engine — base for src/cloudflare-backup; rebuilds when the digest moves."
+    },
+    {
+      "name": "opentofu",
+      "image": "ghcr.io/opentofu/opentofu",
+      "tag": "1.12.4-minimal",
+      "variable": "OPENTOFU_MINIMAL_DIGEST",
+      "description": "OpenTofu minimal image — the tofu binary is multi-stage-copied into cloudflare-backup. Pinned tag (>= 1.11 for provider-v5 write-only attributes)."
+    }
+  ],
+  "settings": {
+    "commit-prefix": "chore(deps)",
+    "auto-create-variables": true
+  }
+}

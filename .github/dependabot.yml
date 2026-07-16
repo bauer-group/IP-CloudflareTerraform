@@ -1,13 +1,14 @@
 # =============================================================================
 # Dependabot Configuration
 # =============================================================================
-# Monitors Docker base images for updates
-# Combined with docker-maintenance.yml workflow for auto-merge and release
+# Monitors GitHub Actions, Docker base images and Python deps for updates.
+# Combined with docker-maintenance.yml for auto-merge and check-base-images.yml
+# for digest-pinned upstream tracking on floating tags.
 # =============================================================================
 
 version: 2
 updates:
-  # GitHub Actions updates
+  # ── GitHub Actions ────────────────────────────────────────────────────────
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
@@ -21,3 +22,20 @@ updates:
       - "dependabot"
     commit-message:
       prefix: "chore(ci)"
+
+  # ── Docker base images (FROM tag bumps: backuphelper + opentofu) ───────────
+  - package-ecosystem: "docker"
+    directory: "/src/cloudflare-backup"
+    schedule: { interval: "weekly", day: "sunday", time: "06:30", timezone: "Etc/UTC" }
+    labels: ["dependencies", "docker", "dependabot"]
+    commit-message:
+      prefix: "chore(docker)"
+
+  # ── Python dependencies (plugin) ──────────────────────────────────────────
+  - package-ecosystem: "pip"
+    directory: "/src/cloudflare-backup"
+    versioning-strategy: increase-if-necessary
+    schedule: { interval: "weekly", day: "sunday", time: "06:30", timezone: "Etc/UTC" }
+    labels: ["dependencies", "python", "dependabot"]
+    commit-message:
+      prefix: "chore(deps)"

@@ -1,0 +1,16 @@
+# Repo-root build-context hygiene. The image build uses the self-contained
+# per-service context under src/cloudflare-backup/ (see that dir's .dockerignore).
+.git
+.github
+.venv
+venv
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+.env
+.env.*
+!.env.example
+*.bak
+docs
+*.md
+!README.md

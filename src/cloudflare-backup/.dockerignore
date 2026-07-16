@@ -1,0 +1,13 @@
+# Build-context hygiene for the cloudflare-backup image.
+# NOTE: tests/ is intentionally NOT excluded — the Dockerfile runs the pytest
+# gate during the build.
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+*.egg-info
+.venv
+venv
+build
+dist
+.mypy_cache
+.ruff_cache

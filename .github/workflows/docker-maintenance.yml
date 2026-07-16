@@ -1,0 +1,27 @@
+# =============================================================================
+# Docker Maintenance — Auto-merge Dependabot PRs
+# =============================================================================
+# Auto-merges Dependabot PRs for Dockerfile base-image updates. The merge to
+# main then triggers docker-release.yml (semantic release + image rebuild).
+# =============================================================================
+
+name: 🔧 Docker Maintenance
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'src/cloudflare-backup/Dockerfile'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  maintenance:
+    name: Auto-merge Dependabot PRs
+    uses: bauer-group/automation-templates/.github/workflows/docker-maintenance-dependabot.yml@main
+    with:
+      merge-method: 'squash'
+      auto-approve: true
+    secrets: inherit

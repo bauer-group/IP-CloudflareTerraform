@@ -1,0 +1,181 @@
+# =============================================================================
+# Release & Docker Build
+# =============================================================================
+# Single pipeline (mirrors the CS-* fleet): validate → semantic-release → build
+# & push the cloudflare-backup image to GHCR → sync the Dockerfile version.
+# Replaces a standalone semantic-release workflow so there is exactly one release
+# path on main.
+# =============================================================================
+
+name: 🚀 Release & Docker Build
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '.github/**'
+      - '*.md'
+      - 'docs/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'docker-compose*.yml'
+      - '.dockerignore'
+      - '.env.example'
+  workflow_dispatch:
+    inputs:
+      force-release:
+        description: 'force create release'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  packages: write
+  security-events: write
+  # Required by docker-build.yml@main.
+  attestations: write
+  id-token: write
+  actions: read
+
+jobs:
+  # ============================================
+  # Validation
+  # ============================================
+  validate-compose:
+    name: 🔍 Validate Docker Compose
+    uses: bauer-group/automation-templates/.github/workflows/modules-validate-compose.yml@main
+    with:
+      compose-files: '["docker-compose.yml"]'
+      env-file: '.env.example'
+
+  validate-scripts:
+    name: 🔍 Validate Shell Scripts
+    uses: bauer-group/automation-templates/.github/workflows/modules-validate-shellscript.yml@main
+    with:
+      scan-directory: '.'
+      severity: 'error'
+
+  # ============================================
+  # Release (only on main push / dispatch)
+  # ============================================
+  release:
+    name: 📦 Create Semantic Release
+    needs: [validate-compose, validate-scripts]
+    if: |
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      needs.validate-compose.result == 'success' &&
+      needs.validate-scripts.result == 'success'
+    uses: bauer-group/automation-templates/.github/workflows/modules-semantic-release.yml@main
+    with:
+      target-branch: 'main'
+      dry-run: false
+      force-release: ${{ inputs.force-release || false }}
+    secrets: inherit
+
+  # ============================================
+  # cloudflare-backup (meta image on the BackupHelper engine)
+  # ============================================
+  docker-build-cloudflare-backup-release:
+    name: 🐳 Build & Push cloudflare-backup
+    needs: release
+    if: needs.release.outputs.release-created == 'true'
+    uses: bauer-group/automation-templates/.github/workflows/docker-build.yml@main
+    with:
+      deploy-environment: 'production'
+      publish-to: 'ghcr'
+      ghcr-image-name: 'bauer-group/IP-CloudflareTerraform/cloudflare-backup'
+      docker-image-name: 'bauergroup/ip-cloudflareterraform-cloudflare-backup'
+      release-version: ${{ needs.release.outputs.version }}
+      build-args: |
+        IMAGE_VERSION=${{ needs.release.outputs.version }}
+      image-tags: 'stable'
+      # The OCI version label is set at build time via the IMAGE_VERSION build-arg;
+      # the Dockerfile default is written back by sync-dockerfile-versions below.
+      update-dockerfile-version: false
+      auto-tags: true
+      latest-tag: true
+      dockerfile-path: './src/cloudflare-backup/Dockerfile'
+      docker-context: './src/cloudflare-backup'
+      platforms: 'linux/amd64'
+      push: true
+      generate-sbom: true
+      sync-dockerhub-readme: true
+      security-scan: false
+      security-fail-on: 'CRITICAL'
+    secrets: inherit
+
+  docker-build-cloudflare-backup-pr:
+    name: 🔨 Validate cloudflare-backup Build (PR)
+    needs: [validate-compose, validate-scripts]
+    if: github.event_name == 'pull_request'
+    uses: bauer-group/automation-templates/.github/workflows/docker-build.yml@main
+    with:
+      publish-to: 'ghcr'
+      ghcr-image-name: 'bauer-group/IP-CloudflareTerraform/cloudflare-backup'
+      auto-tags: true
+      dockerfile-path: './src/cloudflare-backup/Dockerfile'
+      docker-context: './src/cloudflare-backup'
+      platforms: 'linux/amd64'
+      push: false
+      security-scan: false
+      security-fail-on: 'CRITICAL'
+    secrets: inherit
+
+  # ============================================
+  # Dockerfile version write-back
+  # ============================================
+  sync-dockerfile-versions:
+    name: 🔖 Sync Dockerfile Versions
+    needs:
+      - release
+      - docker-build-cloudflare-backup-release
+    if: needs.release.outputs.release-created == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🔖 Write release version into Dockerfiles
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          DOCKERFILES=(
+            src/cloudflare-backup/Dockerfile
+          )
+          for df in "${DOCKERFILES[@]}"; do
+            sed -i -E "s/^(ARG IMAGE_VERSION=).*/\1${VERSION}/" "$df"
+          done
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          if git diff --quiet -- "${DOCKERFILES[@]}"; then
+            echo "ℹ️ Dockerfile versions already at ${VERSION} — nothing to commit"
+            exit 0
+          fi
+
+          git add "${DOCKERFILES[@]}"
+          git commit -m "chore: synced Dockerfile versions to ${VERSION} [skip ci]"
+
+          for attempt in 1 2 3; do
+            if git pull --rebase origin main && git push origin HEAD:main; then
+              echo "✅ Synced Dockerfile versions to ${VERSION}"
+              exit 0
+            fi
+            echo "⚠️ push attempt ${attempt} failed — retrying..."
+            sleep 5
+          done
+          echo "::error::failed to push Dockerfile version sync after 3 attempts"
+          exit 1

@@ -1,0 +1,74 @@
+# =============================================================================
+# CloudflareTerraform — cloudflare-backup service
+# -----------------------------------------------------------------------------
+# One dual-mode service on the BackupHelper engine:
+#   • backup mode:  docker compose up -d cf-backup
+#   • CLI mode:     docker compose run --rm cf-backup <verb>
+#
+# The whole job config is passed inline as BACKUP_CONFIG_JSON. Non-secret values
+# are interpolated by compose from .env (single $); secrets use $${VAR} so the
+# engine resolves them at runtime from the container env — they never land in the
+# rendered config. Copy .env.example → .env and fill it in.
+# =============================================================================
+
+services:
+  cf-backup:
+    image: ${CLOUDFLARE_BACKUP_IMAGE:-ghcr.io/bauer-group/ip-cloudflareterraform/cloudflare-backup}:${CLOUDFLARE_BACKUP_VERSION:-latest}
+    build:
+      context: ./src/cloudflare-backup
+    container_name: ${STACK_NAME:-cloudflare}_BACKUP
+    restart: unless-stopped
+    environment:
+      TZ: ${TIME_ZONE:-Etc/UTC}
+      BACKUP_LOG_LEVEL: ${BACKUP_LOG_LEVEL:-INFO}
+      # Secrets resolved by the container (kept out of the rendered config).
+      CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:-}
+      BACKUP_S3_SECRET_KEY: ${BACKUP_S3_SECRET_KEY:-}
+      BACKUP_ENCRYPTION_RECIPIENT: ${BACKUP_ENCRYPTION_RECIPIENT:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      WEBHOOK_SECRET: ${BACKUP_WEBHOOK_SECRET:-}
+      # BackupHelper engine config. The cloudflare source reads CLOUDFLARE_API_TOKEN
+      # straight from the environment (above); zones default to auto-discovery.
+      BACKUP_CONFIG_JSON: |
+        {
+          "instance_name": "${STACK_NAME:-cloudflare}",
+          "jobs": [{
+            "name": "main",
+            "sources": [
+              {"type": "cloudflare",
+               "account_id": "${CLOUDFLARE_ACCOUNT_ID:-}",
+               "zones": "${CLOUDFLARE_ZONES:-auto}",
+               "resource_scope": "${CLOUDFLARE_RESOURCE_SCOPE:-all}",
+               "resource_discovery": "${CLOUDFLARE_RESOURCE_DISCOVERY:-curated}",
+               "throttle_rps": ${CLOUDFLARE_THROTTLE_RPS:-4}}
+            ],
+            "destinations": [
+              {"type": "local"},
+              {"type": "s3",
+               "endpoint": "${BACKUP_S3_ENDPOINT:-}",
+               "bucket": "${BACKUP_S3_BUCKET:-}",
+               "access_key": "${BACKUP_S3_ACCESS_KEY:-}",
+               "secret_key": "$${BACKUP_S3_SECRET_KEY}",
+               "region": "${BACKUP_S3_REGION:-eu-central-1}",
+               "prefix": "${BACKUP_S3_PREFIX:-cloudflare/}",
+               "force_path_style": ${BACKUP_S3_FORCE_PATH_STYLE:-true}}
+            ],
+            "schedule": {"mode": "${BACKUP_SCHEDULE_MODE:-cron}", "cron": "${BACKUP_SCHEDULE_CRON:-15 3 * * *}"},
+            "retention": {"age_days": ${BACKUP_RETENTION_AGE_DAYS:-30}, "gfs": {"daily": ${BACKUP_GFS_DAILY:-7}, "weekly": ${BACKUP_GFS_WEEKLY:-4}, "monthly": ${BACKUP_GFS_MONTHLY:-6}}},
+            "encryption": {"mode": "${BACKUP_ENCRYPTION_MODE:-none}", "recipient": "$${BACKUP_ENCRYPTION_RECIPIENT}"},
+            "notifications": {
+              "channels": "${BACKUP_ALERT_CHANNELS:-}",
+              "level": "${BACKUP_ALERT_LEVEL:-warnings}",
+              "email": {"host": "${SMTP_HOST:-}", "port": ${SMTP_PORT:-587}, "tls": ${SMTP_SECURE:-true},
+                        "username": "${SMTP_USERNAME:-}", "password": "$${SMTP_PASSWORD}",
+                        "sender": "${SMTP_FROM_EMAIL:-}", "recipients": ["${BACKUP_ALERT_EMAIL:-}"]},
+              "webhook": {"url": "${BACKUP_WEBHOOK_URL:-}", "secret": "$${WEBHOOK_SECRET}"},
+              "teams": {"url": "${BACKUP_TEAMS_WEBHOOK:-}"}
+            }
+          }]
+        }
+    volumes:
+      - backup-data:/data
+
+volumes:
+  backup-data:
