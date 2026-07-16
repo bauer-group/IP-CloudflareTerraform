@@ -58,8 +58,20 @@ ACCOUNT_RESOURCE_TYPES: tuple[str, ...] = (
     "cloudflare_zero_trust_access_group",
     "cloudflare_zero_trust_access_service_token",
     "cloudflare_zero_trust_tunnel_cloudflared",
+    # Tunnel children — the ingress config is where stacks are actually wired
+    # (public hostname -> internal service). Config needs the tunnel ids
+    # (see DYNAMIC_ID_TYPES); route/virtual_network are sweepable.
+    "cloudflare_zero_trust_tunnel_cloudflared_config",
+    "cloudflare_zero_trust_tunnel_cloudflared_route",
+    "cloudflare_zero_trust_tunnel_cloudflared_virtual_network",
     "cloudflare_zero_trust_gateway_policy",
 )
+
+# Types whose --resource-id list is fetched from the API at runtime (they are
+# keyed by a parent id and cannot be swept). Mapped to their fetch in export.
+DYNAMIC_ID_TYPES: frozenset[str] = frozenset({
+    "cloudflare_zero_trust_tunnel_cloudflared_config",
+})
 
 # The stable set used to classify scope when enumerating the provider schema.
 # Anything NOT in here is treated as zone-scoped; a misclassified new

@@ -133,6 +133,7 @@ def version(binary: str = "cf-terraforming", *, run: RunFn = subprocess.run) -> 
 # recorded as skips (info), not errors. (pattern, human reason)
 _BENIGN_PATTERNS: tuple[tuple[str, str], ...] = (
     ("no resource ids defined", "nothing to export (empty, or type needs explicit --resource-id)"),
+    ("found to generate", "nothing to export (empty)"),
     ("403", "not entitled / insufficient token permission"),
     ("forbidden", "not entitled / insufficient token permission"),
     ("404", "resource endpoint not present on this account"),

@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from fakes import make_fetch, zone_page
 
-from backuphelper_cloudflare.cfapi import CloudflareAPIError, discover_zones
+from backuphelper_cloudflare.cfapi import CloudflareAPIError, discover_zones, list_tunnel_ids
 
 
 def test_discover_zones_single_page():
@@ -27,6 +27,22 @@ def test_discover_zones_error_envelope_raises():
     fetch = make_fetch([{"success": False, "errors": [{"message": "bad token"}]}])
     with pytest.raises(CloudflareAPIError):
         discover_zones("https://api", "tok", fetch=fetch)
+
+
+def test_list_tunnel_ids_filters_deleted():
+    payload = {"success": True, "result": [
+        {"id": "t1", "name": "a"},
+        {"id": "t2", "name": "b", "deleted_at": "2020-01-01T00:00:00Z"},  # deleted → excluded
+        {"id": "t3", "name": "c", "deleted_at": None},
+    ], "result_info": {"total_pages": 1}}
+    ids = list_tunnel_ids("https://api", "tok", "acct1", fetch=make_fetch([payload]))
+    assert ids == ["t1", "t3"]
+
+
+def test_list_tunnel_ids_error_raises():
+    fetch = make_fetch([{"success": False, "errors": [{"message": "nope"}]}])
+    with pytest.raises(CloudflareAPIError):
+        list_tunnel_ids("https://api", "tok", "acct1", fetch=fetch)
 
 
 def test_account_filter_in_url():

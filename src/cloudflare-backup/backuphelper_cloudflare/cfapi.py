@@ -75,3 +75,35 @@ def discover_zones(
         if not total_pages or page >= total_pages:
             break
     return zones
+
+
+def list_tunnel_ids(
+    api_base: str,
+    token: str,
+    account_id: str,
+    *,
+    fetch: Fetch = _urllib_fetch,
+    per_page: int = 50,
+    max_pages: int = 1000,
+) -> list[str]:
+    """List non-deleted Cloudflare Tunnel ids for an account.
+
+    Needed because tunnel-scoped child resources (e.g.
+    ``cloudflare_zero_trust_tunnel_cloudflared_config``) cannot be swept —
+    cf-terraforming must be handed each tunnel id via ``--resource-id``.
+    """
+    ids: list[str] = []
+    for page in range(1, max_pages + 1):
+        url = (f"{api_base}/accounts/{account_id}/cfd_tunnel"
+               f"?is_deleted=false&per_page={per_page}&page={page}")
+        payload = fetch(url, token)
+        if not payload.get("success", False):
+            raise CloudflareAPIError(f"tunnel listing failed: {payload.get('errors')}")
+        for item in payload.get("result", []) or []:
+            if not item.get("deleted_at") and item.get("id"):
+                ids.append(item["id"])
+        info = payload.get("result_info") or {}
+        total_pages = info.get("total_pages")
+        if not total_pages or page >= total_pages:
+            break
+    return ids

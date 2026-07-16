@@ -129,6 +129,38 @@ def test_zone_setting_uses_default_resource_ids(tmp_path):
     assert (tmp_path / "out" / "zones" / "a.com" / "cloudflare_zone_setting.tf").exists()
 
 
+def test_tunnel_config_uses_dynamic_resource_ids(tmp_path):
+    # cloudflare_zero_trust_tunnel_cloudflared_config is keyed by tunnel id;
+    # export must fetch tunnel ids from the API and pass them via --resource-id.
+    cfg = _cfg(resource_types="", resource_scope="account",
+               account_resource_types="cloudflare_zero_trust_tunnel_cloudflared_config")
+    tunnels = {"success": True, "result": [{"id": "t1", "name": "a"}, {"id": "t2", "name": "b"}],
+               "result_info": {"total_pages": 1}}
+    record: list = []
+    result = export(
+        cfg, tmp_path / "out", env=ENV,
+        run_tofu=make_tofu_run({"cloudflare_zero_trust_tunnel_cloudflared_config"}),
+        run_cf=make_cf_run({"cloudflare_zero_trust_tunnel_cloudflared_config": "resource x {}"},
+                           record=record),
+        fetch=make_fetch([tunnels]), sleep=lambda s: None)
+    gen = [a for a in record if len(a) > 1 and a[1] == "generate"][0]
+    assert gen[gen.index("--resource-id") + 1] == \
+        "cloudflare_zero_trust_tunnel_cloudflared_config=t1,t2"
+    assert result.files_written == 1
+
+
+def test_tunnel_config_no_tunnels_is_skip(tmp_path):
+    cfg = _cfg(resource_types="", resource_scope="account",
+               account_resource_types="cloudflare_zero_trust_tunnel_cloudflared_config")
+    empty = {"success": True, "result": [], "result_info": {"total_pages": 1}}
+    result = export(
+        cfg, tmp_path / "out", env=ENV,
+        run_tofu=make_tofu_run({"cloudflare_zero_trust_tunnel_cloudflared_config"}),
+        run_cf=make_cf_run({}), fetch=make_fetch([empty]), sleep=lambda s: None)
+    assert any("no parent resources" in s for s in result.skipped)
+    assert result.errors == []
+
+
 def test_export_passes_absolute_tofu_binary_path(tmp_path):
     # Regression: cf-terraforming --terraform-binary-path must be absolute
     # (it stats the literal value, it does not search PATH).

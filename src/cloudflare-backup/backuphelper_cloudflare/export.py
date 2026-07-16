@@ -37,6 +37,7 @@ from .config import CloudflareConfig
 from .resources import (
     ACCOUNT_RESOURCE_TYPES,
     DEFAULT_DENY_TYPES,
+    DYNAMIC_ID_TYPES,
     RESOURCE_ID_DEFAULTS,
     SECRET_BEARING_TYPES,
     ZONE_RESOURCE_TYPES,
@@ -109,6 +110,14 @@ def _select_types(cfg: CloudflareConfig, schema_types: set[str]) -> list[tuple[s
 
     deny = set(DEFAULT_DENY_TYPES) | set(cfg.deny_types)
     return [(t, s) for (t, s) in pairs if t not in deny]
+
+
+def _dynamic_ids(resource_type: str, scope: str, scope_id: str, cfg: CloudflareConfig,
+                 token: str, fetch: cfapi.Fetch) -> list[str]:
+    """Fetch the --resource-id list for a parent-keyed child type from the API."""
+    if resource_type == "cloudflare_zero_trust_tunnel_cloudflared_config" and scope == "account":
+        return cfapi.list_tunnel_ids(cfg.api_base, token, scope_id, fetch=fetch)
+    return []
 
 
 def _build_env(cfg: CloudflareConfig, token: str, base_env: Optional[Mapping[str, str]]) -> dict:
@@ -197,9 +206,20 @@ def export(
                 log.info("skip %s: not in provider schema", resource_type)
                 return
             # Types that cannot be swept (e.g. cloudflare_zone_setting) need
-            # explicit ids: config override first, else the built-in defaults.
+            # explicit ids: config override, else static defaults, else the
+            # parent ids fetched from the API (e.g. tunnel config <- tunnel ids).
             ids = cfg.resource_ids.get(resource_type) or list(
                 RESOURCE_ID_DEFAULTS.get(resource_type, ()))
+            if not ids and resource_type in DYNAMIC_ID_TYPES:
+                try:
+                    ids = _dynamic_ids(resource_type, scope, scope_id, cfg, token, fetch)
+                except Exception as exc:  # noqa: BLE001 - degrade, don't abort
+                    result.errors.append(f"{resource_type}: id discovery failed: {exc}")
+                    return
+                if not ids:
+                    result.skipped.append(
+                        f"{resource_type} ({scope}={scope_id}): no parent resources")
+                    return
             try:
                 hcl = cfterraforming.generate(
                     binary=cfg.cfterraforming_binary, resource_type=resource_type, scope=scope,
