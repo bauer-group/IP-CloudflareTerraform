@@ -7,6 +7,23 @@ apply → re-plan. One scope (a single zone, or an account) per run.
 > The engine's own `restore <id>` only rehydrates the HCL files onto disk; it does
 > **not** push to Cloudflare. Use `cloudflare apply` for that.
 
+## What a snapshot contains
+
+With the default `schema` discovery a snapshot holds **100+ resource types** split
+into `zones/<name>/` and `_account/<id>/`. `cloudflare apply` restores **one scope
+at a time** — apply each zone and the account separately, reviewing each plan.
+
+**Order matters for parent-keyed resources.** Child resources reference a parent
+that must exist first:
+
+- **Tunnels:** apply `cloudflare_zero_trust_tunnel_cloudflared` (+ re-inject the
+  `tunnel_secret`) before its `_config` (ingress) / `_route` / `_virtual_network`.
+- **R2:** apply `cloudflare_r2_bucket` before its `_cors` / `_lifecycle` / `_lock`
+  / `_event_notification` / `_sippy`.
+
+For a `--dr` (from-scratch) restore, apply parents first, then re-run for the
+children; for drift-correction the `import{}` blocks reconcile existing parents.
+
 ## Preconditions
 
 - A **read-write** `CLOUDFLARE_API_TOKEN` (the backup token is read-only). Set it

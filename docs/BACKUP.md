@@ -25,16 +25,33 @@ The `cloudflare` source enumerates **zones** via the Cloudflare API and runs
 
 - `resource_scope` = `all` (default) | `zone` | `account`
 - `resource_discovery`:
-  - `curated` (default) — a maintained allow-list of common zone/account types;
-  - `schema` — every resource the pinned provider exposes
-    (`tofu providers schema`), classified into zone/account scope.
-- Every candidate is validated against the live provider schema; unknown types
-  are **skipped with a warning** (see `EXPORT_MANIFEST.json` → `skipped_unknown`).
-- A resource type whose generate fails is recorded and skipped — the run
-  produces a **partial snapshot**, it does not abort.
+  - **`schema` (default)** — enumerate **every** resource type the pinned
+    provider exposes (`tofu providers schema`, ~257) for maximum backup &
+    recovery coverage. Each type is tried at its likely scope first and, if
+    empty, at the other scope — **lossless** against scope misclassification;
+    genuine dual-scope types (`ruleset`, `list`) export at both. ~15–20 min and
+    ~1000+ API calls per run.
+  - `curated` — a fast, predictable built-in allow-list of common types (~4 min).
+- **Parent-keyed child types** that cannot be swept are resolved automatically by
+  fetching their parent ids from the API: tunnel ingress config
+  (`cloudflare_zero_trust_tunnel_cloudflared_config` ← tunnel ids). Zone settings
+  use a static id list (below).
+- A type that returns nothing, is not entitled (4xx), or needs a parent id it
+  has no data for is a **benign skip** (`EXPORT_MANIFEST.json` → `skipped`); only
+  real failures (5xx / 429 / unexpected) land in `errors`. The run never aborts —
+  a failed type degrades to a **partial snapshot**.
 
 Override per deployment in the source config:
-`resource_types`, `account_resource_types`, `deny_types`.
+`resource_types`, `account_resource_types`, `deny_types`, and `resource_ids`
+(explicit ids for a parent-keyed type).
+
+> **Known cf-terraforming limitation — R2 bucket sub-configs.** The R2 buckets
+> themselves (`cloudflare_r2_bucket`) are backed up, but their sub-configurations
+> — `cloudflare_r2_bucket_cors` / `_lifecycle` / `_lock` / `_event_notification`
+> / `_sippy` — **cannot** be exported: cf-terraforming 0.27.0 does not substitute
+> the bucket name into the API path (it requests a literal `{bucket_name}` and
+> gets a 400), regardless of `--resource-id`. They surface as benign skips.
+> Revisit when cf-terraforming adds support.
 
 **Zone settings** (`cloudflare_zone_setting`) can't be swept — cf-terraforming
 needs each setting named. The source exports a curated default set of common,
@@ -56,7 +73,7 @@ The `cloudflare` source keys:
 | `account_id` | (from zones) | pin to one account |
 | `zones` | `auto` | `auto` = all zones the token sees, or a list |
 | `resource_scope` | `all` | `all` \| `zone` \| `account` |
-| `resource_discovery` | `curated` | `curated` \| `schema` |
+| `resource_discovery` | `schema` | `schema` (max coverage) \| `curated` (fast) |
 | `resource_types` / `account_resource_types` / `deny_types` | — | overrides |
 | `throttle_rps` | `4` | request/sec ceiling (global limit 1200 / 5 min) |
 | `provider_version` | `>= 5.8.2, < 6.0.0` | provider pin |
