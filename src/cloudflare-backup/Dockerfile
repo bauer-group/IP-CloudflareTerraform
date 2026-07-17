@@ -32,7 +32,7 @@ FROM ghcr.io/bauer-group/cs-backuphelper/backuphelper:latest
 # Release version injected at build time (--build-arg IMAGE_VERSION); the
 # default is kept in sync with the latest release by the sync-dockerfile-
 # versions job in docker-release.yml.
-ARG IMAGE_VERSION=0.1.0
+ARG IMAGE_VERSION=0.1.1
 # cf-terraforming >= 0.24.0 is required for Cloudflare provider v5 (0.27.0 latest).
 ARG CF_TERRAFORMING_VERSION=0.27.0
 # Provider pin used to pre-warm the plugin cache (matches the source default).
