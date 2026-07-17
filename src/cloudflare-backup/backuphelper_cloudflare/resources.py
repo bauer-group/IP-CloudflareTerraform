@@ -163,3 +163,29 @@ def curated_types(scope: str) -> tuple[tuple[str, str], ...]:
 def classify_scope(resource_type: str) -> str:
     """Best-effort scope classification for a schema-discovered resource type."""
     return "account" if resource_type in ACCOUNT_SCOPED_TYPES else "zone"
+
+
+# Types that legitimately exist at BOTH zone and account scope with DIFFERENT
+# resources at each — always export both scopes, never dedup on first content.
+DUAL_SCOPE_TYPES: frozenset[str] = frozenset({
+    "cloudflare_ruleset",
+    "cloudflare_list",
+    "cloudflare_custom_pages",
+    "cloudflare_logpush_job",
+})
+
+# Name substrings that make a resource LIKELY account-scoped. Used ONLY to order
+# which scope schema-discovery tries first — correctness is guaranteed by the
+# both-scope fallback, so a wrong guess only costs an extra (empty) call.
+_ACCOUNT_NAME_HINTS: tuple[str, ...] = (
+    "account", "zero_trust", "worker", "r2_", "queue", "magic_", "gateway",
+    "teams", "tunnel", "notification", "turnstile", "hyperdrive", "pages_",
+    "d1_", "stream", "registrar", "address_map", "byo_ip", "api_token",
+    "logpush", "certificate_authority", "dns_firewall", "load_balancer_pool",
+    "load_balancer_monitor", "email_routing_address", "hostname_tls_setting",
+)
+
+
+def likely_account_scope(resource_type: str) -> bool:
+    """Ordering heuristic only (not authoritative): try account scope first?"""
+    return any(hint in resource_type for hint in _ACCOUNT_NAME_HINTS)

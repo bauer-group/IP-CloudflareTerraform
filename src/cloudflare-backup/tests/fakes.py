@@ -37,6 +37,7 @@ def make_tofu_run(resource_types: Optional[set[str]] = None,
 def make_cf_run(hcl_by_type: dict[str, str], *,
                 fail_types: Optional[set[str]] = None,
                 benign_types: Optional[set[str]] = None,
+                content_scope: Optional[dict[str, str]] = None,
                 version: str = "cf-terraforming v0.27.0",
                 record: Optional[list] = None) -> Callable:
     """A fake ``cf-terraforming`` runner.
@@ -49,6 +50,7 @@ def make_cf_run(hcl_by_type: dict[str, str], *,
     """
     fail_types = fail_types or set()
     benign_types = benign_types or set()
+    content_scope = content_scope or {}  # type -> "zone"|"account": content only there
 
     def run(argv, **kwargs):
         if record is not None:
@@ -58,6 +60,10 @@ def make_cf_run(hcl_by_type: dict[str, str], *,
         # argv = [bin, sub, "--resource-type", TYPE, scope_flag, id, ...]
         sub = argv[1]
         rtype = argv[argv.index("--resource-type") + 1]
+        if rtype in content_scope and sub == "generate":
+            cur = "zone" if "-z" in argv else "account"
+            if cur != content_scope[rtype]:
+                return proc(stdout=b"")  # empty at the "wrong" scope
         if rtype in benign_types:
             return proc(returncode=1,
                         stderr=f'level=fatal msg="No resource IDs defined in Terraform for '

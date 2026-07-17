@@ -81,8 +81,14 @@ def test_benign_skip_reason():
     assert cft.benign_skip_reason("No resource IDs defined in Terraform for resource X")
     assert cft.benign_skip_reason("GET /zones/x/spectrum/apps: 403 Forbidden")
     assert cft.benign_skip_reason("404 not found")
+    assert cft.benign_skip_reason("GET /zones/x/logs/control/retention/flag: 401 Unauthorized")
+    assert cft.benign_skip_reason("GET /accounts/x/r2/buckets/%7Bbucket_name%7D/cors: 400 Bad Request")
+    assert cft.benign_skip_reason("Could not route to /zones/{identifier}/subscription")
+    assert cft.benign_skip_reason("No route for that URI")
     assert cft.benign_skip_reason('GET "https://api/zones/x/pagerules": 400 Bad Request')
-    # real errors → None (surfaced as warnings)
+    assert cft.benign_skip_reason("GET /zones/x/custom_certificates: 400 Bad Request")
+    # real errors → None (surfaced as warnings: 5xx, 429, unexpected)
     assert cft.benign_skip_reason("500 Internal Server Error") is None
-    assert cft.benign_skip_reason("400 Bad Request on /some/other/endpoint") is None
+    assert cft.benign_skip_reason("429 Too Many Requests") is None
+    assert cft.benign_skip_reason("connection reset by peer") is None
     assert cft.benign_skip_reason("") is None

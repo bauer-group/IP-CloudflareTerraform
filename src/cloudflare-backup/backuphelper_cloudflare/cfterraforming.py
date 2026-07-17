@@ -130,26 +130,35 @@ def version(binary: str = "cf-terraforming", *, run: RunFn = subprocess.run) -> 
 
 
 # Expected, non-actionable cf-terraforming outcomes for a blind resource sweep —
-# recorded as skips (info), not errors. (pattern, human reason)
+# recorded as skips (info), not errors. A 4xx on a list GET means "this type is
+# not listable this way"; real errors (5xx / 429 / unexpected) stay surfaced so
+# a genuine infra problem stands out in a 257-type sweep. (pattern, human reason)
 _BENIGN_PATTERNS: tuple[tuple[str, str], ...] = (
     ("no resource ids defined", "nothing to export (empty, or type needs explicit --resource-id)"),
     ("found to generate", "nothing to export (empty)"),
+    ("no route for that uri", "endpoint not available on this account"),
     ("403", "not entitled / insufficient token permission"),
     ("forbidden", "not entitled / insufficient token permission"),
+    ("401", "not entitled / insufficient token permission"),
+    ("unauthorized", "not entitled / insufficient token permission"),
     ("404", "resource endpoint not present on this account"),
     ("not found", "resource endpoint not present on this account"),
+    ("400 bad request", "not listable via a blind sweep (child resource needs a parent id)"),
 )
 
 
 def benign_skip_reason(stderr: str) -> Optional[str]:
     """A reason string if the failure is an expected sweep outcome (empty type,
-    not entitled, needs explicit ids), else None (a real error worth surfacing)."""
+    not entitled, needs explicit ids/parent id), else None (a real error — 5xx,
+    429, unexpected — worth surfacing)."""
     s = (stderr or "").lower()
-    # Page Rules are a legacy feature superseded by rulesets (which are exported
-    # separately); the /pagerules endpoint returns 400 on zones without/beyond
-    # it. Specific to that endpoint so unrelated 400s stay real errors.
+    # Page Rules are legacy (superseded by rulesets, exported separately).
     if "pagerules" in s and "400" in s:
         return "page rules API returned 400 (legacy feature — superseded by rulesets)"
+    # cf-terraforming left a literal {id} placeholder in the URL — it could not
+    # resolve a parent id for a child resource (e.g. r2 bucket / magic site).
+    if "%7b" in s or "{identifier}" in s:
+        return "child resource needs a parent id (cf-terraforming could not resolve it)"
     for pattern, reason in _BENIGN_PATTERNS:
         if pattern in s:
             return reason

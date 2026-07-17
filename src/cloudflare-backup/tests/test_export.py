@@ -161,6 +161,49 @@ def test_tunnel_config_no_tunnels_is_skip(tmp_path):
     assert result.errors == []
 
 
+def test_schema_both_scope_finds_content_at_secondary(tmp_path):
+    # Lossless: a type whose content is at account is still found even though the
+    # name heuristic tries zone first (no _ACCOUNT_NAME_HINTS match).
+    cfg = _cfg(resource_types="", account_resource_types="",
+               resource_discovery="schema", resource_scope="all")
+    result = export(
+        cfg, tmp_path / "out", env=ENV,
+        run_tofu=make_tofu_run({"cloudflare_widget_thing"}),
+        run_cf=make_cf_run({"cloudflare_widget_thing": "resource x {}"},
+                           content_scope={"cloudflare_widget_thing": "account"}),
+        fetch=make_fetch([zone_page([("z1", "a.com", "acct1")])]), sleep=lambda s: None)
+    assert (tmp_path / "out" / "_account" / "acct1" / "cloudflare_widget_thing.tf").exists()
+    assert not (tmp_path / "out" / "zones" / "a.com" / "cloudflare_widget_thing.tf").exists()
+    assert result.errors == []
+
+
+def test_schema_dual_scope_writes_both(tmp_path):
+    # Dual-scope types (ruleset) export at BOTH scopes — no dedup.
+    cfg = _cfg(resource_types="", account_resource_types="",
+               resource_discovery="schema", resource_scope="all")
+    export(cfg, tmp_path / "out", env=ENV,
+           run_tofu=make_tofu_run({"cloudflare_ruleset"}),
+           run_cf=make_cf_run({"cloudflare_ruleset": "resource x {}"}),  # content at both
+           fetch=make_fetch([zone_page([("z1", "a.com", "acct1")])]), sleep=lambda s: None)
+    assert (tmp_path / "out" / "zones" / "a.com" / "cloudflare_ruleset.tf").exists()
+    assert (tmp_path / "out" / "_account" / "acct1" / "cloudflare_ruleset.tf").exists()
+
+
+def test_schema_non_dual_stops_at_primary(tmp_path):
+    # Efficiency: an account-hinted type with content at account is NOT retried at zone.
+    cfg = _cfg(resource_types="", account_resource_types="",
+               resource_discovery="schema", resource_scope="all")
+    record: list = []
+    export(cfg, tmp_path / "out", env=ENV,
+           run_tofu=make_tofu_run({"cloudflare_workers_script"}),
+           run_cf=make_cf_run({"cloudflare_workers_script": "resource x {}"}, record=record),
+           fetch=make_fetch([zone_page([("z1", "a.com", "acct1"), ("z2", "b.org", "acct1")])]),
+           sleep=lambda s: None)
+    gens = [a for a in record if len(a) > 1 and a[1] == "generate"]
+    assert gens and all("-a" in a for a in gens)  # account only
+    assert not any("-z" in a for a in gens)
+
+
 def test_export_passes_absolute_tofu_binary_path(tmp_path):
     # Regression: cf-terraforming --terraform-binary-path must be absolute
     # (it stats the literal value, it does not search PATH).

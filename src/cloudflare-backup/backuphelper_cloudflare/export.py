@@ -37,12 +37,13 @@ from .config import CloudflareConfig
 from .resources import (
     ACCOUNT_RESOURCE_TYPES,
     DEFAULT_DENY_TYPES,
+    DUAL_SCOPE_TYPES,
     DYNAMIC_ID_TYPES,
     RESOURCE_ID_DEFAULTS,
     SECRET_BEARING_TYPES,
     ZONE_RESOURCE_TYPES,
-    classify_scope,
     curated_types,
+    likely_account_scope,
 )
 
 log = logging.getLogger(__name__)
@@ -89,27 +90,40 @@ class ExportResult:
         }
 
 
-def _select_types(cfg: CloudflareConfig, schema_types: set[str]) -> list[tuple[str, str]]:
+def _select_types(cfg: CloudflareConfig,
+                  schema_types: set[str]) -> list[tuple[str, tuple[str, ...], bool]]:
     """Return ``(resource_type, scope)`` pairs to export, honoring overrides,
     discovery mode, deny-list and the live provider schema."""
-    pairs: list[tuple[str, str]]
+    scope = cfg.resource_scope
+
+    def ordered(primary: str) -> tuple[str, ...]:
+        """Scopes to try, honoring resource_scope; for 'all', primary then other."""
+        if scope in ("zone", "account"):
+            return (scope,)
+        other = "account" if primary == "zone" else "zone"
+        return (primary, other)
+
+    # (resource_type, ordered_scopes, dual). dual => try every scope (no dedup);
+    # non-dual => stop at the first scope that yields content.
+    typed: list[tuple[str, tuple[str, ...], bool]] = []
     if cfg.resource_types or cfg.account_resource_types:
-        pairs = []
-        if cfg.resource_scope in ("all", "zone"):
-            pairs += [(t, "zone") for t in (cfg.resource_types or ZONE_RESOURCE_TYPES)]
-        if cfg.resource_scope in ("all", "account"):
-            pairs += [(t, "account") for t in (cfg.account_resource_types or ACCOUNT_RESOURCE_TYPES)]
+        if scope in ("all", "zone"):
+            typed += [(t, ("zone",), False) for t in (cfg.resource_types or ZONE_RESOURCE_TYPES)]
+        if scope in ("all", "account"):
+            typed += [(t, ("account",), False)
+                      for t in (cfg.account_resource_types or ACCOUNT_RESOURCE_TYPES)]
     elif cfg.resource_discovery == "schema" and schema_types:
-        pairs = []
         for t in sorted(schema_types):
-            scope = classify_scope(t)
-            if cfg.resource_scope == "all" or cfg.resource_scope == scope:
-                pairs.append((t, scope))
+            if t in DUAL_SCOPE_TYPES:
+                scopes = ("zone", "account") if scope == "all" else (scope,)
+                typed.append((t, scopes, True))
+            else:
+                typed.append((t, ordered("account" if likely_account_scope(t) else "zone"), False))
     else:
-        pairs = list(curated_types(cfg.resource_scope))
+        typed += [(t, (s,), False) for (t, s) in curated_types(cfg.resource_scope)]
 
     deny = set(DEFAULT_DENY_TYPES) | set(cfg.deny_types)
-    return [(t, s) for (t, s) in pairs if t not in deny]
+    return [(t, sc, d) for (t, sc, d) in typed if t not in deny]
 
 
 def _dynamic_ids(resource_type: str, scope: str, scope_id: str, cfg: CloudflareConfig,
@@ -174,7 +188,7 @@ def export(
             log.warning("could not read provider schema (no validation this run): %s", exc)
             result.errors.append(f"provider schema unavailable: {exc}")
 
-        pairs = _select_types(cfg, schema_types)
+        typed = _select_types(cfg, schema_types)
 
         # Enumerate zones (needed for zone-scoped types and to infer account ids).
         zones: list[cfapi.Zone] = []
@@ -199,12 +213,14 @@ def export(
 
         secret_types_seen: set[str] = set()
 
-        def _emit(scope: str, scope_id: str, target_dir: Path, resource_type: str) -> None:
+        def _emit(scope: str, scope_id: str, target_dir: Path, resource_type: str) -> bool:
+            """Generate one resource type at one scope/id. Returns True if it
+            wrote a file (had content), False otherwise."""
             result.types_attempted += 1
             if schema_types and resource_type not in schema_types:
                 result.skipped_unknown.append(resource_type)
                 log.info("skip %s: not in provider schema", resource_type)
-                return
+                return False
             # Types that cannot be swept (e.g. cloudflare_zone_setting) need
             # explicit ids: config override, else static defaults, else the
             # parent ids fetched from the API (e.g. tunnel config <- tunnel ids).
@@ -215,11 +231,11 @@ def export(
                     ids = _dynamic_ids(resource_type, scope, scope_id, cfg, token, fetch)
                 except Exception as exc:  # noqa: BLE001 - degrade, don't abort
                     result.errors.append(f"{resource_type}: id discovery failed: {exc}")
-                    return
+                    return False
                 if not ids:
                     result.skipped.append(
                         f"{resource_type} ({scope}={scope_id}): no parent resources")
-                    return
+                    return False
             try:
                 hcl = cfterraforming.generate(
                     binary=cfg.cfterraforming_binary, resource_type=resource_type, scope=scope,
@@ -233,12 +249,12 @@ def export(
                 else:
                     result.errors.append(str(exc))
                     log.warning("%s", exc)
-                return
+                return False
             finally:
                 if throttle:
                     sleep(throttle)
             if not cfterraforming.has_content(hcl):
-                return
+                return False
             target_dir.mkdir(parents=True, exist_ok=True)
             (target_dir / f"{resource_type}.tf").write_text(hcl, encoding="utf-8")
             result.files_written += 1
@@ -264,19 +280,31 @@ def export(
                 finally:
                     if throttle:
                         sleep(throttle)
+            return True
 
-        for resource_type, scope in pairs:
+        def _emit_scope(scope: str, resource_type: str) -> bool:
+            """Emit a type across every id of a scope. Returns True if any content."""
+            got = False
             if scope == "zone":
                 for zone in zones:
-                    _emit("zone", zone.id, output_dir / "zones" / _slug(zone.name), resource_type)
+                    if _emit("zone", zone.id, output_dir / "zones" / _slug(zone.name), resource_type):
+                        got = True
             else:  # account
                 for account_id in result.account_ids:
-                    _emit("account", account_id, output_dir / "_account" / _slug(account_id),
-                          resource_type)
-                if not result.account_ids:
-                    result.errors.append(
-                        f"account-scoped {resource_type} skipped: no account id "
+                    if _emit("account", account_id,
+                             output_dir / "_account" / _slug(account_id), resource_type):
+                        got = True
+            return got
+
+        if not result.account_ids:
+            log.warning("no account id resolved — account-scoped resources are skipped "
                         "(set account_id or grant the token account access)")
+
+        for resource_type, scopes, dual in typed:
+            for sc in scopes:
+                got = _emit_scope(sc, resource_type)
+                if got and not dual:  # single-scope type found its data — don't try the other
+                    break
 
         tofu.fmt(output_dir, binary=cfg.tofu_binary, env=proc_env, run=run_tofu)
 

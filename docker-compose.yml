@@ -39,7 +39,7 @@ services:
                "account_id": "${CLOUDFLARE_ACCOUNT_ID:-}",
                "zones": "${CLOUDFLARE_ZONES:-auto}",
                "resource_scope": "${CLOUDFLARE_RESOURCE_SCOPE:-all}",
-               "resource_discovery": "${CLOUDFLARE_RESOURCE_DISCOVERY:-curated}",
+               "resource_discovery": "${CLOUDFLARE_RESOURCE_DISCOVERY:-schema}",
                "throttle_rps": ${CLOUDFLARE_THROTTLE_RPS:-4}}
             ],
             "destinations": [
