@@ -1,3 +1,9 @@
+## [0.1.2](https://github.com/bauer-group/IP-CloudflareTerraform/compare/v0.1.1...v0.1.2) (2026-08-07)
+
+### 🐛 Bug Fixes
+
+* **ci:** added the missing permissions block ([9d80071](https://github.com/bauer-group/IP-CloudflareTerraform/commit/9d80071c8b73a11ada401e43501d4bf79610b423))
+
 ## [0.1.1](https://github.com/bauer-group/IP-CloudflareTerraform/compare/v0.1.0...v0.1.1) (2026-07-17)
 
 ## [0.1.0](https://github.com/bauer-group/IP-CloudflareTerraform/compare/v0.0.0...v0.1.0) (2026-07-17)
