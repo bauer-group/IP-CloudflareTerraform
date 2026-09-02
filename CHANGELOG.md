@@ -1,3 +1,11 @@
+# Changelog
+
+All notable changes to this project are documented here. This file is maintained
+automatically by [semantic-release](https://github.com/semantic-release/semantic-release)
+on every release to `main`.
+
+## [0.1.3](https://github.com/bauer-group/IP-CloudflareTerraform/compare/v0.1.2...v0.1.3) (2026-09-02)
+
 ## [0.1.2](https://github.com/bauer-group/IP-CloudflareTerraform/compare/v0.1.1...v0.1.2) (2026-08-07)
 
 ### 🐛 Bug Fixes
