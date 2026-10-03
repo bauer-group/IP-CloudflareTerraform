@@ -4,6 +4,14 @@ All notable changes to this project are documented here. This file is maintained
 automatically by [semantic-release](https://github.com/semantic-release/semantic-release)
 on every release to `main`.
 
+## [0.1.5](https://github.com/bauer-group/IP-CloudflareTerraform/compare/v0.1.4...v0.1.5) (2026-10-03)
+
+### 🔧 Maintenance
+
+* **ci:** removed issue AI summary workflow ([2ad25f9](https://github.com/bauer-group/IP-CloudflareTerraform/commit/2ad25f95171bad7315549fa21b517504d9c2aeac)), references [bauer-group/automation-templates#105](https://github.com/bauer-group/automation-templates/issues/105)
+* **deps:** update base image backuphelper ([de28e4e](https://github.com/bauer-group/IP-CloudflareTerraform/commit/de28e4ee39da970adcb2f68da9173719794d6231))
+* synced Dockerfile versions to 0.1.4 [skip ci] ([977efc0](https://github.com/bauer-group/IP-CloudflareTerraform/commit/977efc0d266b15bd60581e7a98c1b8be8459aa4c))
+
 ## [0.1.4](https://github.com/bauer-group/IP-CloudflareTerraform/compare/v0.1.3...v0.1.4) (2026-09-19)
 
 ### 🔧 Maintenance
