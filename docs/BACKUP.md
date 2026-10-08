@@ -104,7 +104,13 @@ Set `BACKUP_S3_*` (S3-compatible: AWS, MinIO, R2, B2, Wasabi — keep
 The engine has **no S3 server-side encryption**; for sensitive backups enable
 client-side encryption: `BACKUP_ENCRYPTION_MODE=age` +
 `BACKUP_ENCRYPTION_RECIPIENT=<age public key>`. Only the ciphertext
-(`<id>.tar.gz.age`) is stored/uploaded.
+(`<id>.tar.gz.age`) is stored/uploaded — unless the encryption itself fails
+(tool missing, bad recipient): then the engine stores the **unencrypted** archive
+rather than none, and the run ends in `warning` with
+`encryption (age) failed, snapshot stored UNENCRYPTED: …` in the alert (see
+[Run status and health](#run-status-and-health)). Treat that alert as an
+incident: fix the recipient, then delete or re-create that snapshot on every
+destination.
 
 ## Scheduling
 
@@ -120,13 +126,18 @@ the container is unhealthy from 26 hours after each run until the next one.
 
 ## Run status and health
 
-How a failure shows up depends on how much of the export failed:
+How a failure shows up depends on what failed:
 
 - **Single resource types failed** (5xx / 429 / unexpected): the snapshot holds the
   rest. The failures are listed in `EXPORT_MANIFEST.json` → `errors`, and their
   count is in the component's `errors` field (`show <id>`). They do not change the
   run's status: without other problems the run ends in `success` (exit 0, alert
   only at level `all`).
+- **Storing the snapshot went partly wrong** — the S3 upload failed while the local
+  copy exists, the encryption fell back to an unencrypted archive, or retention
+  failed: the export is complete, so the run ends in `warning`. Exit 0, the alert
+  goes out at level `warnings` (the default) and `all`, and the container stays
+  healthy.
 - **The export failed as a whole** — no token, a token Cloudflare rejects so that
   nothing could be exported, or an exception: the `cloudflare` component fails and
   the run ends in `error`. `--now` exits 1, the alert goes out at every
