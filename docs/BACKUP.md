@@ -39,7 +39,8 @@ The `cloudflare` source enumerates **zones** via the Cloudflare API and runs
 - A type that returns nothing, is not entitled (4xx), or needs a parent id it
   has no data for is a **benign skip** (`EXPORT_MANIFEST.json` → `skipped`); only
   real failures (5xx / 429 / unexpected) land in `errors`. The run never aborts —
-  a failed type degrades to a **partial snapshot**.
+  a failed type degrades to a **partial snapshot**. What that means for the run's
+  status, alerts and the healthcheck is under [Run status and health](#run-status-and-health).
 
 Override per deployment in the source config:
 `resource_types`, `account_resource_types`, `deny_types`, and `resource_ids`
@@ -109,7 +110,43 @@ client-side encryption: `BACKUP_ENCRYPTION_MODE=age` +
 
 `BACKUP_SCHEDULE_CRON` (default `15 3 * * *`). The container runs a blocking
 scheduler; an external scheduler (GitHub Actions / host cron) can instead invoke
-`docker compose run --rm cf-backup --now`.
+`docker compose run --rm cf-backup --now`, which exits 1 when the run ends in
+`error` (see [Run status and health](#run-status-and-health)).
+
+Keep the cron at least daily while the `cf-backup` daemon runs: its healthcheck
+expects a run every 26 hours (`BACKUP_HEALTHCHECK_MAX_AGE_HOURS`, the image
+default, which `docker-compose.yml` does not pass through). With runs further apart
+the container is unhealthy from 26 hours after each run until the next one.
+
+## Run status and health
+
+How a failure shows up depends on how much of the export failed:
+
+- **Single resource types failed** (5xx / 429 / unexpected): the snapshot holds the
+  rest. The failures are listed in `EXPORT_MANIFEST.json` → `errors`, and their
+  count is in the component's `errors` field (`show <id>`). They do not change the
+  run's status: without other problems the run ends in `success` (exit 0, alert
+  only at level `all`).
+- **The export failed as a whole** — no token, a token Cloudflare rejects so that
+  nothing could be exported, or an exception: the `cloudflare` component fails and
+  the run ends in `error`. `--now` exits 1, the alert goes out at every
+  `BACKUP_ALERT_LEVEL`, and since BackupHelper 1.7.7 the container turns unhealthy
+  until a newer run ends in `success` or `warning`.
+
+The `cf-backup` container's healthcheck (from the BackupHelper engine) is unhealthy
+when `/data` is not writable, when the most recent run ended in `error`, left a
+failed component or started more than 26 hours ago, or when no backup has run yet
+and the daemon started more than 26 hours ago. It prints the reason:
+
+```bash
+docker compose exec cf-backup backuphelper healthcheck
+# unhealthy: the last backup failed: snapshot 2026-07-05_03-15-00 (job main) at 2026-07-05T03:15:00+00:00: failed component(s): cloudflare
+```
+
+A deployment whose newest snapshot already has a failed component is unhealthy
+right after the upgrade to 1.7.7, until a complete snapshot exists. The full rules
+are in the BackupHelper
+[deployment guide](https://github.com/bauer-group/CS-BackupHelper/blob/main/docs/deployment.md#the-functional-healthcheck).
 
 ## Rate limits
 
