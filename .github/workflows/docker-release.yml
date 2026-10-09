@@ -79,7 +79,8 @@ jobs:
   # without changes after the restore. Every release rebuilds the image FROM
   # the newest BackupHelper engine - also the one the base image monitor
   # dispatches - so this runs on every push, dispatch and relevant PR.
-  # Docs-only pushes never reach it (paths-ignore).
+  # Docs-only pushes never reach it (paths-ignore). The second job below runs
+  # the same cycle as an upgrade with an off-site copy; the release needs both.
   backup-roundtrip:
     name: 🧪 Backup Round Trip
     needs: [validate-compose, validate-scripts]
@@ -113,17 +114,66 @@ jobs:
       check-script: 'tests/backup-roundtrip/check.sh'
     secrets: inherit
 
+  # The way production gets there: the latest release's cf-backup starts
+  # against the mock, the seed runs and the snapshot is taken - also to an S3
+  # bucket (a throwaway MinIO). Then cf-backup is upgraded to the image built
+  # from this commit like an operator does (image switched, compose up -d);
+  # the seeded data must be untouched, the new sidecar healthy with the old
+  # snapshot and the zone and account must plan without changes from it.
+  # After the tamper the sidecar's data volume is wiped like on a new host,
+  # and the new sidecar restores the old snapshot from S3 with
+  # `cloudflare apply`. One compose file, so no variant matrix.
+  backup-roundtrip-upgrade:
+    name: 🧪 Backup Round Trip (upgrade, S3)
+    needs: [validate-compose, validate-scripts]
+    permissions:
+      contents: read
+      packages: read
+    uses: bauer-group/automation-templates/.github/workflows/modules-backup-roundtrip-test.yml@main
+    with:
+      compose-files: '["docker-compose.yml", "tests/backup-roundtrip/docker-compose.ci.yml"]'
+      prepare-script: 'tests/backup-roundtrip/prepare.sh'
+      env-overrides: |
+        STACK_NAME=cloudflare_roundtrip
+        CLOUDFLARE_API_BASE_URL=https://cf-mock:8443/client/v4
+        CLOUDFLARE_RESOURCE_DISCOVERY=curated
+        CLOUDFLARE_RESOURCE_SCOPE=all
+      generated-secrets: 'CLOUDFLARE_API_TOKEN'
+      build-images: '[{"service": "cf-backup", "context": "src/cloudflare-backup"}]'
+      backup-service: 'cf-backup'
+      require-components: 'cloudflare'
+      restore-command: 'cloudflare apply'
+      restore-args: '--zone charlie.example --force'
+      seed-script: 'tests/backup-roundtrip/seed.sh'
+      mutate-script: 'tests/backup-roundtrip/mutate.sh'
+      check-script: 'tests/backup-roundtrip/check.sh'
+      # cf-backup starts as the latest release (vX.Y.Z -> image tag X.Y.Z)
+      # and is upgraded to this commit's build; cf-mock is no release image.
+      upgrade-from: 'latest-release'
+      # setting VARIABLE: the .env variables docker-compose.yml builds the
+      # S3 destination from.
+      s3-destination: true
+      s3-env: |
+        endpoint   BACKUP_S3_ENDPOINT
+        bucket     BACKUP_S3_BUCKET
+        access-key BACKUP_S3_ACCESS_KEY
+        secret-key BACKUP_S3_SECRET_KEY
+        path-style BACKUP_S3_FORCE_PATH_STYLE
+      artifact-name: 'backup-roundtrip-upgrade-diagnostics'
+    secrets: inherit
+
   # ============================================
   # Release (only on main push / dispatch)
   # ============================================
   release:
     name: 📦 Create Semantic Release
-    needs: [validate-compose, validate-scripts, backup-roundtrip]
+    needs: [validate-compose, validate-scripts, backup-roundtrip, backup-roundtrip-upgrade]
     if: |
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
       needs.validate-compose.result == 'success' &&
       needs.validate-scripts.result == 'success' &&
-      needs.backup-roundtrip.result == 'success'
+      needs.backup-roundtrip.result == 'success' &&
+      needs.backup-roundtrip-upgrade.result == 'success'
     uses: bauer-group/automation-templates/.github/workflows/modules-semantic-release.yml@main
     with:
       target-branch: 'main'
