@@ -81,8 +81,11 @@ Cloudflare API ──▶  │  cloudflare source  ──▶  cf-terraforming gen
 - Snapshot ids are UTC `%Y-%m-%d_%H-%M-%S`; versioning, retention (30 days + GFS)
   and off-site replication are the engine's, not git's.
 - **Every release is gated on a backup round trip** against a mock Cloudflare
-  API: seed a DNS record, back up, change it, `cloudflare apply`, check that it
-  is back ([docs/BACKUP.md](docs/BACKUP.md#round-trip-test-in-ci)).
+  API over TLS, with the curated default resource types at zone and account
+  scope: seed a DNS record, a ruleset rule and a zone setting, back up, change
+  them, `cloudflare apply`, check that they are back and that the zone and the
+  account plan without changes
+  ([docs/BACKUP.md](docs/BACKUP.md#round-trip-test-in-ci)).
 
 ## Documentation
 

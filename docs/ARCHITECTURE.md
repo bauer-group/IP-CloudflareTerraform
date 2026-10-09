@@ -48,7 +48,10 @@ schema from a shared, initialized working dir.
    - discover zones via the Cloudflare API (`/zones`, paginated),
    - loop the selected resource types running `cf-terraforming generate`
      (`-z` per zone, `-a` per account) and `import --modern-import-block`,
-     throttled to `throttle_rps`,
+     throttled to `throttle_rps`; the import blocks are matched to the
+     generated resources and output the provider cannot import unchanged is
+     adapted (`cfterraforming.reconcile_imports` / `adapt_to_provider`, see
+     [BACKUP.md](BACKUP.md#what-gets-exported)),
    - `tofu fmt` to canonicalize, write `EXPORT_MANIFEST.json`.
 3. `produce` packages the tree as one deterministic `cloudflare.tar.gz`
    `StagedComponent` (with metadata: zone count, tool versions, secrets report).
@@ -64,7 +67,8 @@ so snapshot access can never diverge from how the engine wrote it.
 - **diff** — extract two snapshots, normalized `difflib` diff of the `.tf` trees.
 - **apply** — stage one scope, `tofu init` → `plan` → approval (or `--force`) →
   `apply` → re-`plan`. `import{}` blocks reconcile live resources; `--dr` skips them.
-- **drift** — export now to a temp tree, diff against the newest stored snapshot.
+- **drift** — export now to a temp tree, diff against the newest stored snapshot
+  (with `--zone`, only that zone's files and the account's are compared).
 
 ## Layered, testable code
 

@@ -57,6 +57,27 @@ add `CLOUDFLARE_RESOURCE_SCOPE=zone` to export only the listed types.
 > gets a 400), regardless of `--resource-id`. They surface as benign skips.
 > Revisit when cf-terraforming adds support.
 
+> **Curated types cf-terraforming 0.27.0 cannot export.** It has no provider-v5
+> endpoint for `cloudflare_workers_script`, so Worker scripts are never exported
+> (the call returns nothing, no skip is recorded). `cloudflare_workers_cron_trigger`
+> and `cloudflare_authenticated_origin_pulls` need ids (script names, host names)
+> the source does not supply; they end as benign skips.
+
+**Fixed up for restore.** Where cf-terraforming 0.27 and the provider disagree,
+the export adjusts the generated HCL so that `cloudflare apply` plans no change
+nobody made — without changing what a restore applies:
+
+- Import blocks are matched to the generated resources by resource id. For
+  rulesets the two differ: the API lists managed rulesets, which are not
+  generated, and generate sorts by phase. Import blocks without a resource are
+  dropped and listed under `skipped` in `EXPORT_MANIFEST.json`.
+- Tunnel ingress configurations get their import id (`<account_id>/<tunnel_id>`)
+  from the generated resource; cf-terraforming's own id names the account twice.
+- Managed transforms keep only the enabled entries: the provider imports only
+  those and disables every other enabled transform on apply.
+- A zone's snippet rules resource without rules is dropped: cf-terraforming
+  creates one for every zone, and the provider imports it without its rules.
+
 **Zone settings** (`cloudflare_zone_setting`) can't be swept — cf-terraforming
 needs each setting named. The source exports a curated default set of common,
 plan-agnostic settings (SSL/TLS, HTTPS, caching, security level, …) via
@@ -80,7 +101,7 @@ The `cloudflare` source keys:
 | `resource_discovery` | `schema` | `schema` (max coverage) \| `curated` (fast) |
 | `resource_types` / `account_resource_types` / `deny_types` | — | overrides (`resource_types` = `CLOUDFLARE_RESOURCE_TYPES`) |
 | `throttle_rps` | `4` | request/sec ceiling (global limit 1200 / 5 min) |
-| `api_base` | `https://api.cloudflare.com/client/v4` | API endpoint of the zone discovery, cf-terraforming and the OpenTofu provider (`CLOUDFLARE_API_BASE_URL`); keep the default — it exists for the [mock API round trip](#round-trip-test-in-ci) |
+| `api_base` | `https://api.cloudflare.com/client/v4` | API endpoint of the zone discovery, cf-terraforming and the OpenTofu provider (`CLOUDFLARE_API_BASE_URL`); keep the default — it exists for the [mock API round trip](#round-trip-test-in-ci). A custom endpoint must be https and end in `/client/v4`, or rulesets are not exported: cf-terraforming's legacy ruleset client only follows such an endpoint (as `CLOUDFLARE_API_HOSTNAME`) |
 | `provider_version` | `>= 5.8.2, < 6.0.0` | provider pin |
 | `modern_import_block` | `true` | emit `import{}` blocks |
 
@@ -189,49 +210,101 @@ base image monitor dispatches a release after a new BackupHelper engine image, s
 an engine update ships only after it backed up and restored Cloudflare
 configuration.
 
+The export runs with the plugin's **curated default resource types at zone and
+account scope** (`CLOUDFLARE_RESOURCE_DISCOVERY=curated`,
+`CLOUDFLARE_RESOURCE_SCOPE=all`, no type override). Schema discovery is not used
+in CI: it asks for ~250 types per scope and would turn the gate into a
+half-hour job.
+
+### The mock API
+
 The mock ([`tests/backup-roundtrip/cf-mock/server.py`](../tests/backup-roundtrip/cf-mock/server.py),
 Python standard library on `python:3-alpine`) is added by the CI-only override
 [`tests/backup-roundtrip/docker-compose.ci.yml`](../tests/backup-roundtrip/docker-compose.ci.yml).
-It serves exactly the endpoints this image calls for DNS records — zone list,
-record list, record read, record update — with Cloudflare's response envelope,
-accepts only the `CLOUDFLARE_API_TOKEN` generated for the run, returns every list
-in pages of two and records each request in a journal. Its zone and record ids
-are derived at runtime and the token is generated per run; neither is committed.
+It serves every endpoint the curated list needs, with Cloudflare's response
+envelope; accepts only the `CLOUDFLARE_API_TOKEN` generated for the run; returns
+the lists the real API paginates in pages of two; and records each request in a
+journal — with the client that sent it (from the User-Agent), the route that
+answered and whether a write changed anything.
+
+| Scope | Resources with data |
+| --- | --- |
+| Account | `cloudflare_ruleset` (a root entry point that executes a custom ruleset, plus a listed managed ruleset), three `cloudflare_workers_kv_namespace` (two pages), a `cloudflare_zero_trust_tunnel_cloudflared` and its `_config` |
+| Every zone | DNS records, the 27 default `cloudflare_zone_setting` ids, `cloudflare_bot_management`, `cloudflare_url_normalization_settings`, `cloudflare_managed_transforms`, a listed managed ruleset |
+| `charlie.example` | its custom firewall ruleset (zone entry point) |
+
+Every other curated type answers with an empty list; a request to anything else
+is a 404 that fails the check. Ids are derived at runtime and the token is
+generated per run; neither is committed.
+
+**TLS.** cf-terraforming 0.27 still lists rulesets with its legacy client, which
+ignores `CLOUDFLARE_BASE_URL` and only calls `https://<CLOUDFLARE_API_HOSTNAME>/client/v4`.
+So the mock speaks TLS on `cf-mock:8443`, and the source's `api_base` is
+`https://cf-mock:8443/client/v4`, which the plugin hands to that client as
+`CLOUDFLARE_API_HOSTNAME`. [`prepare.sh`](../tests/backup-roundtrip/prepare.sh)
+— the module's `prepare-script` — creates a CA and a certificate for `cf-mock`
+per run in `tests/backup-roundtrip/.tls/` (git-ignored) and deletes the CA key
+right away. `cf-backup` trusts that CA through `SSL_CERT_DIR`, in addition to its
+own CA bundle, so Python, cf-terraforming, OpenTofu and the provider accept the
+mock's certificate without any of them skipping verification. Inside the CI stack `api.cloudflare.com` resolves to `127.0.0.1`, so
+a request that bypassed the mock would fail instead of carrying the token to the
+real API. The mock's control plane (seed, tamper, journal) listens on
+`127.0.0.1:8080` inside its container and cannot be reached from `cf-backup`.
+
+### Phases
 
 | Phase | What happens |
-|-------|--------------|
+| --- | --- |
 | Build | `src/cloudflare-backup` is built from the commit, `FROM` the newest engine, with the pytest gate |
-| Start | `docker-compose.yml` plus the override; `.env` sets `CLOUDFLARE_API_BASE_URL=http://cf-mock:8080/client/v4`, `CLOUDFLARE_RESOURCE_SCOPE=zone`, `CLOUDFLARE_RESOURCE_TYPES=cloudflare_dns_record` and a generated `CLOUDFLARE_API_TOKEN` |
-| Seed | A TXT record `_roundtrip.charlie.example` holding the run's marker: the third record of the third zone, so it is on page 2 of both lists. Requests without a token or with a wrong one must be rejected |
+| Prepare | `prepare.sh` creates the TLS material; `.env` sets `CLOUDFLARE_API_BASE_URL=https://cf-mock:8443/client/v4`, the curated discovery at both scopes and a generated `CLOUDFLARE_API_TOKEN` |
+| Seed | In `charlie.example`: a TXT record `_roundtrip.charlie.example` holding the run's marker (third record of the third zone, so on page 2 of both lists), a rule of the custom firewall ruleset described by the marker, and `min_tls_version = 1.2`. Requests to the TLS endpoint without a token or with a wrong one must be rejected |
 | Back up | `create` must exit `0`, `show` must list `cloudflare` without errors or warnings, `verify` must report `OK` |
-| Tamper | The record's content is changed in the mock, the way an edit in the dashboard would change it |
+| Tamper | The record's content, the rule's description (and the rule disabled) and `min_tls_version = 1.0` — the way edits in the dashboard would change them |
 | Restore | `cloudflare apply <id> --zone charlie.example --force`: import blocks, plan, apply, re-plan |
-| Check | The record holds the marker again; the snapshot reports 3 zones, 3 files and 0 export errors; the journal shows the token on every request, page 2 of the zone and the record list, no write by the backup, and restore writes only to the tampered record — all successful, one of them putting the marker back |
 | Health | `backuphelper healthcheck` must report the sidecar `healthy` |
 
-The scripts live in [`tests/backup-roundtrip/`](../tests/backup-roundtrip/); the
-assertions are in `cf-mock/mockctl.py`. The check runs three times — after the
-seed (marker present), after the tamper (marker gone) and after the restore
-(marker back) — so a restore that writes nothing cannot pass.
+The check ([`check.sh`](../tests/backup-roundtrip/check.sh), assertions in
+`cf-mock/mockctl.py`) runs three times: after the seed (marker data present),
+after the tamper (tampered values present, nothing written) and after the
+restore (marker data back). Each time every API request of the image must carry
+the token and hit a route the mock models. Once the snapshot exists, its export
+must cover the three zones and the account, hold exactly the expected 25 `.tf`
+files and record no export error. In addition:
+
+- **After the tamper**: `cloudflare drift --against <id> --zone charlie.example`
+  must exit `1` and report exactly the three tampered files — a second export
+  reproduces every other file of the zone and the account.
+- **After the restore**: the journal must show that the backup only read; asked
+  for every curated type the mock serves; followed page 2 of the zone list, of
+  `charlie.example`'s records and of the KV namespaces; listed the rulesets of
+  all three zones and the account with cf-terraforming's legacy client through
+  the mock and fetched the rules of the three custom rulesets. The restore must
+  have written the three seeded values back and changed nothing else (no-op
+  writes are listed), every write must have succeeded. Finally
+  `cloudflare apply <id> --plan-only` must import every resource and plan no
+  change, for `charlie.example` (34 imports) and for the account (7 imports).
 
 The restore step is `cloudflare apply`, the command an operator runs: the
 engine's own `restore` does not handle the `cloudflare` component (see
-[RESTORE-RUNBOOK.md](RESTORE-RUNBOOK.md)). The test changes the record instead of
-deleting it, because `apply` reconciles existing resources through the
-snapshot's import blocks; a deleted record needs `--dr`.
+[RESTORE-RUNBOOK.md](RESTORE-RUNBOOK.md)). The test changes resources instead
+of deleting them, because `apply` reconciles existing resources through the
+snapshot's import blocks; deleted ones need `--dr`.
 
-**Not covered.** The mock knows DNS records only, so the export is limited to
-that type at zone scope: other resource types, account-level resources, `--dr`,
-`drift` and `diff` are not exercised. cf-terraforming's legacy client, which it
-still uses for `cloudflare_ruleset`, ignores `api_base` and would call the real
-API — one more reason for the type limit. The mock follows the shape of the real
-responses for these endpoints, not every rule of the real API (for example, it
-does not validate record contents).
+**Not covered.** Schema discovery; the account scope is planned, not applied;
+`--dr`; curated types the mock serves as empty lists (page rules, load
+balancers, lists, Access, Gateway, R2, queues, …) are only asked for, their
+HCL is not exercised; `cloudflare diff` between two snapshots (drift uses the
+same diff code). The mock follows the shape of the real responses for these
+endpoints, not every rule of the real API (for example, it does not validate
+DNS record contents or ruleset expressions).
 
-A run takes about 2 minutes. It starts on pushes to `main` (documentation-only
+A run takes about 4 minutes. It starts on pushes to `main` (documentation-only
 pushes excluded), on every `workflow_dispatch`, and on pull requests that touch
 `src/`, a compose file, `.env.example`, `tests/backup-roundtrip/` or the release
 workflow. When it fails, the step summary names the failed phase, and the
 `backup-roundtrip-diagnostics` artifact holds the logs of `cf-backup` and
 `cf-mock` (one line per request), `docker compose ps`, the snapshot list and
 the output of `create` and of the restore.
+
+Outside CI, run `bash tests/backup-roundtrip/prepare.sh` before starting the
+stack with the override: without the TLS material `cf-mock` exits at once.

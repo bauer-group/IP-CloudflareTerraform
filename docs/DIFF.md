@@ -46,4 +46,6 @@ newest stored snapshot (or `--against <id>`). Unlike `diff` (two historical
 backups), drift needs live API access — it answers *"has Cloudflare changed since
 my last backup?"*. Exit `1` when drift is found.
 
-Use `--zone` to scope a fast check to a single zone; `--raw` for a verbatim diff.
+Use `--zone` to scope a fast check to a single zone: only that zone and the
+account are exported, and only their files are compared — the snapshot's other
+zones are left out, not reported as removed. `--raw` gives a verbatim diff.
