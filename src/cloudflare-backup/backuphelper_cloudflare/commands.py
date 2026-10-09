@@ -139,10 +139,13 @@ def drift_cmd(
             typer.echo("error: fresh export produced no files "
                        f"({'; '.join(result_export.errors[:2]) or 'unknown'})", err=True)
             raise typer.Exit(2)
+        # With --zone the fresh export holds that zone only: the other zones of
+        # the baseline are out of scope, not removed.
+        zones = [export_mod.slug(name) for name in result_export.zones] if zone else None
         try:
             with open_export(baseline) as tree_old:
                 result = diff_mod.diff_trees(tree_old, fresh, raw=raw,
-                                             label_a=baseline, label_b="now")
+                                             label_a=baseline, label_b="now", zones=zones)
         except SnapshotError as exc:
             typer.echo(f"error: {exc}", err=True)
             raise typer.Exit(2)
