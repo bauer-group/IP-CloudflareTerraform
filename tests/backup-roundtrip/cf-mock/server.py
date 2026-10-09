@@ -115,12 +115,11 @@ MANAGED_HEADERS = {
 }
 
 # What the export has to write: one file per scope and type with resources.
-# cf-terraforming 0.27 wraps the snippet rules of a zone into one resource even
-# when the zone has none, so every zone gets that file too.
+# The empty snippet rules cf-terraforming 0.27 wraps into a resource for every
+# zone are dropped by the plugin (cfterraforming.adapt_to_provider).
 ZONE_TYPES_WITH_DATA = (
     "cloudflare_bot_management", "cloudflare_dns_record", "cloudflare_managed_transforms",
-    "cloudflare_snippet_rules", "cloudflare_url_normalization_settings",
-    "cloudflare_zone_setting",
+    "cloudflare_url_normalization_settings", "cloudflare_zone_setting",
 )
 MARKER_ZONE_TYPES_WITH_DATA = ("cloudflare_ruleset",)
 ACCOUNT_TYPES_WITH_DATA = (

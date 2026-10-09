@@ -130,6 +130,50 @@ def test_reconcile_imports_leaves_unreadable_output_alone():
     assert cft.reconcile_imports("cloudflare_dns_record", "resource x {}", imports) == (imports, 0)
 
 
+# cf-terraforming 0.27 output (hclwrite layout) for a zone's managed transforms.
+MANAGED_TRANSFORMS = '''resource "cloudflare_managed_transforms" "terraform_managed_resource_z1_0" {
+  zone_id = "z1"
+  managed_request_headers = [{
+    enabled = false
+    id      = "add_bot_protection_headers"
+    }, {
+    enabled = true
+    id      = "add_visitor_location_headers"
+  }]
+  managed_response_headers = [{
+    conflicts_with = ["remove_x-powered-by_header"]
+    enabled        = false
+    id             = "add_security_headers"
+  }]
+}
+'''
+
+
+def test_managed_transforms_keep_only_enabled_ones():
+    hcl = cft.adapt_to_provider("cloudflare_managed_transforms", MANAGED_TRANSFORMS)
+    assert hcl == '''resource "cloudflare_managed_transforms" "terraform_managed_resource_z1_0" {
+  zone_id = "z1"
+  managed_request_headers = [{ enabled = true, id = "add_visitor_location_headers" }]
+  managed_response_headers = []
+}
+'''
+
+
+def test_empty_snippet_rules_are_dropped():
+    empty = ('resource "cloudflare_snippet_rules" "terraform_managed_resource_z1_0" {\n'
+             '  zone_id = "z1"\n  rules   = []\n}\n')
+    assert not cft.has_content(cft.adapt_to_provider("cloudflare_snippet_rules", empty))
+    rules = ('resource "cloudflare_snippet_rules" "terraform_managed_resource_z1_0" {\n'
+             '  zone_id = "z1"\n  rules = [{\n    enabled      = true\n'
+             '    expression   = "(http.request.full_uri wildcard \\"/hello\\")"\n'
+             '    snippet_name = "hello"\n  }]\n}\n')
+    assert cft.adapt_to_provider("cloudflare_snippet_rules", rules) == rules
+
+
+def test_other_types_are_not_adapted():
+    assert cft.adapt_to_provider("cloudflare_dns_record", MANAGED_TRANSFORMS) == MANAGED_TRANSFORMS
+
+
 def test_imports_from_attributes_builds_provider_ids():
     rtype = "cloudflare_zero_trust_tunnel_cloudflared_config"
     hcl = (f'resource "{rtype}" "terraform_managed_resource_acct1_0" {{\n'

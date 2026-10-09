@@ -249,6 +249,95 @@ def reconcile_imports(resource_type: str, hcl: str, blocks: str) -> tuple[str, i
     return "\n".join(kept), dropped
 
 
+def adapt_to_provider(resource_type: str, hcl: str) -> str:
+    """Rewrite cf-terraforming output the provider can never import without a
+    change in the plan, keeping what a restore applies the same:
+
+    * ``cloudflare_managed_transforms``: the provider imports only the enabled
+      transforms and, on apply, disables every enabled transform the config
+      leaves out. The disabled ones cf-terraforming lists add nothing but a
+      change on every restore - only the enabled ones are kept.
+    * ``cloudflare_snippet_rules``: cf-terraforming wraps a zone's snippet
+      rules into one resource even when there are none, and the provider
+      imports the resource without its rules - an empty one would plan a
+      write on every restore of every zone. Resources with no rules are
+      dropped, like any other type without resources.
+    """
+    if resource_type == "cloudflare_managed_transforms":
+        for attribute in ("managed_request_headers", "managed_response_headers"):
+            hcl = _enabled_only(hcl, attribute)
+        return hcl
+    if resource_type == "cloudflare_snippet_rules":
+        return _without_blocks(hcl, resource_type, re.compile(r"^  rules\s*=\s*\[\s*\]\s*$", re.M))
+    return hcl
+
+
+def _closing(text: str, start: int) -> int:
+    """Index of the bracket closing the one at ``start``, -1 if none (strings
+    are skipped)."""
+    pairs = {"[": "]", "{": "}"}
+    stack: list[str] = []
+    in_string = escaped = False
+    for i in range(start, len(text)):
+        char = text[i]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char in pairs:
+            stack.append(pairs[char])
+        elif stack and char == stack[-1]:
+            stack.pop()
+            if not stack:
+                return i
+    return -1
+
+
+def _enabled_only(hcl: str, attribute: str) -> str:
+    """``attribute = [{enabled, id}, ...]`` reduced to the enabled entries."""
+    match = re.search(rf"^(\s*){attribute}\s*=\s*\[", hcl, re.M)
+    if not match:
+        return hcl
+    start = match.end() - 1
+    end = _closing(hcl, start)
+    if end < 0:
+        return hcl
+    kept: list[str] = []
+    position = start + 1
+    while (opening := hcl.find("{", position, end)) >= 0:
+        closing = _closing(hcl, opening)
+        if closing < 0 or closing > end:
+            return hcl
+        entry = hcl[opening:closing + 1]
+        position = closing + 1
+        if re.search(r"\benabled\s*=\s*false\b", entry):
+            continue
+        id_match = re.search(r'\bid\s*=\s*("(?:[^"\\]|\\.)*")', entry)
+        if id_match is None:
+            return hcl
+        kept.append(f"{{ enabled = true, id = {id_match.group(1)} }}")
+    return f"{hcl[:start]}[{', '.join(kept)}]{hcl[end + 1:]}"
+
+
+def _without_blocks(hcl: str, resource_type: str, empty: re.Pattern) -> str:
+    """``hcl`` without the ``resource_type`` blocks whose body matches ``empty``."""
+    matches = list(_RESOURCE_BLOCK.finditer(hcl))
+    out, position = [], 0
+    for i, match in enumerate(matches):
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(hcl)
+        if match.group(1) == resource_type and empty.search(hcl[match.end():end]):
+            out.append(hcl[position:match.start()])
+            position = end
+    out.append(hcl[position:])
+    return "".join(out)
+
+
 def imports_from_attributes(resource_type: str, hcl: str,
                             attributes: tuple[str, ...]) -> tuple[str, list[str]]:
     """Import blocks whose id is built from each generated resource's own

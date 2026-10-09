@@ -355,3 +355,18 @@ def test_tunnel_config_imports_use_the_tunnel_id(tmp_path):
     # cf-terraforming's own import blocks ("acct1/acct1") are not used for it.
     assert not any(len(a) > 1 and a[1] == "import" for a in record)
     assert result.errors == []
+
+
+def test_empty_snippet_rules_wrapper_is_not_written(tmp_path):
+    cfg = _cfg(resource_types="cloudflare_snippet_rules", resource_scope="zone")
+    empty = ('resource "cloudflare_snippet_rules" "terraform_managed_resource_z1_0" {\n'
+             '  zone_id = "z1"\n  rules   = []\n}\n')
+    record: list = []
+    result = export(cfg, tmp_path / "out", env=ENV,
+                    run_tofu=make_tofu_run({"cloudflare_snippet_rules"}),
+                    run_cf=make_cf_run({"cloudflare_snippet_rules": empty}, record=record),
+                    fetch=make_fetch([zone_page([("z1", "a.com", "acct1")])]),
+                    sleep=lambda s: None)
+    assert not (tmp_path / "out" / "zones" / "a.com").exists()
+    assert not any(len(a) > 1 and a[1] == "import" for a in record)
+    assert result.files_written == 0 and result.errors == []

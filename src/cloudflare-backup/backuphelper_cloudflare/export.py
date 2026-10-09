@@ -273,6 +273,7 @@ def export(
             finally:
                 if throttle:
                     sleep(throttle)
+            hcl = cfterraforming.adapt_to_provider(resource_type, hcl)
             if not cfterraforming.has_content(hcl):
                 return False
             target_dir.mkdir(parents=True, exist_ok=True)
