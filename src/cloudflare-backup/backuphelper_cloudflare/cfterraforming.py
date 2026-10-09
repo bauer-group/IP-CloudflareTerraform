@@ -249,6 +249,23 @@ def reconcile_imports(resource_type: str, hcl: str, blocks: str) -> tuple[str, i
     return "\n".join(kept), dropped
 
 
+# The API's (camelCase) keys of a tunnel ingress configuration and the
+# provider v5 attributes they map to (json/tfsdk tags of the provider's
+# zero_trust_tunnel_cloudflared_config model).
+TUNNEL_CONFIG_KEYS: dict[str, str] = {
+    "originRequest": "origin_request", "audTag": "aud_tag", "caPool": "ca_pool",
+    "connectTimeout": "connect_timeout", "disableChunkedEncoding": "disable_chunked_encoding",
+    "http2Origin": "http2_origin", "httpHostHeader": "http_host_header",
+    "keepAliveConnections": "keep_alive_connections", "keepAliveTimeout": "keep_alive_timeout",
+    "matchSNItoHost": "match_sn_ito_host", "noHappyEyeballs": "no_happy_eyeballs",
+    "noTLSVerify": "no_tls_verify", "originServerName": "origin_server_name",
+    "proxyType": "proxy_type", "tcpKeepAlive": "tcp_keep_alive", "teamName": "team_name",
+    "tlsTimeout": "tls_timeout",
+}
+_TUNNEL_CONFIG_KEYS = re.compile(
+    rf"^(\s+)({'|'.join(TUNNEL_CONFIG_KEYS)})(\s*=)", re.M)
+
+
 def adapt_to_provider(resource_type: str, hcl: str) -> str:
     """Rewrite cf-terraforming output the provider can never import without a
     change in the plan, keeping what a restore applies the same:
@@ -272,11 +289,19 @@ def adapt_to_provider(resource_type: str, hcl: str) -> str:
       provider's attribute is ``host``. OpenTofu silently drops the unknown
       key, so a restore would *remove* the origin's Host header - the key is
       renamed to ``host``.
+    * ``cloudflare_zero_trust_tunnel_cloudflared_config``: the same for the
+      camelCase keys of a tunnel's ``originRequest`` settings
+      (``noTLSVerify``, ``httpHostHeader``, ...), which the provider names in
+      snake_case (``TUNNEL_CONFIG_KEYS``) - without the rename a restore
+      would wipe them.
     """
     if resource_type == "cloudflare_load_balancer_monitor":
         return re.sub(r"^  header\s*=\s*\{\s*\}[ \t]*\n", "", hcl, flags=re.M)
     if resource_type == "cloudflare_load_balancer_pool":
         return re.sub(r"^(\s+)Host(\s*=)", r"\1host\2", hcl, flags=re.M)
+    if resource_type == "cloudflare_zero_trust_tunnel_cloudflared_config":
+        return _TUNNEL_CONFIG_KEYS.sub(
+            lambda m: m.group(1) + TUNNEL_CONFIG_KEYS[m.group(2)] + m.group(3), hcl)
     if resource_type == "cloudflare_managed_transforms":
         for attribute in ("managed_request_headers", "managed_response_headers"):
             hcl = _enabled_only(hcl, attribute)
