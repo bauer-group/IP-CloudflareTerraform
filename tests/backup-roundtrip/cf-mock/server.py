@@ -283,10 +283,12 @@ class Store:
             "modified_on": created, "name": "charlie-origins", "description": "",
             "enabled": True, "minimum_origins": 1, "monitor": monitor["id"],
             "check_regions": None, "networks": ["cloudflare"], "notification_email": "",
+            # Origins as the API returns them: flatten_cname and port included.
             "origins": [
                 {"name": "origin-1", "address": "192.0.2.10", "enabled": True, "weight": 1,
-                 "header": {"Host": ["charlie.example"]}},
-                {"name": "origin-2", "address": "192.0.2.11", "enabled": True, "weight": 0.5},
+                 "flatten_cname": True, "port": 0, "header": {"Host": ["charlie.example"]}},
+                {"name": "origin-2", "address": "192.0.2.11", "enabled": True, "weight": 0.5,
+                 "flatten_cname": True, "port": 0},
             ],
         }
         balancer = {
