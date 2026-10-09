@@ -267,9 +267,16 @@ def adapt_to_provider(resource_type: str, hcl: str) -> str:
       empty map is dropped. A header added after the backup still shows up
       in the plan (and is removed by the restore), as the attribute is not
       computed.
+    * ``cloudflare_load_balancer_pool``: an origin's ``header`` comes from the
+      API as ``{"Host": [...]}``; cf-terraforming writes the key as is, but the
+      provider's attribute is ``host``. OpenTofu silently drops the unknown
+      key, so a restore would *remove* the origin's Host header - the key is
+      renamed to ``host``.
     """
     if resource_type == "cloudflare_load_balancer_monitor":
         return re.sub(r"^  header\s*=\s*\{\s*\}[ \t]*\n", "", hcl, flags=re.M)
+    if resource_type == "cloudflare_load_balancer_pool":
+        return re.sub(r"^(\s+)Host(\s*=)", r"\1host\2", hcl, flags=re.M)
     if resource_type == "cloudflare_managed_transforms":
         for attribute in ("managed_request_headers", "managed_response_headers"):
             hcl = _enabled_only(hcl, attribute)

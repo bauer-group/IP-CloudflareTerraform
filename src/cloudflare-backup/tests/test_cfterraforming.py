@@ -181,6 +181,15 @@ def test_empty_monitor_header_is_dropped():
     assert cft.adapt_to_provider("cloudflare_load_balancer_monitor", with_header) == with_header
 
 
+def test_pool_origin_host_header_uses_the_provider_key():
+    pool = ('resource "cloudflare_load_balancer_pool" "terraform_managed_resource_p1_0" {\n'
+            '  account_id = "acct1"\n  name       = "origins"\n  origins = [{\n'
+            '    address = "192.0.2.10"\n    header = {\n      Host = ["example.com"]\n'
+            '    }\n    name = "origin-1"\n  }]\n}\n')
+    adapted = cft.adapt_to_provider("cloudflare_load_balancer_pool", pool)
+    assert adapted == pool.replace('      Host = ["example.com"]', '      host = ["example.com"]')
+
+
 def test_other_types_are_not_adapted():
     assert cft.adapt_to_provider("cloudflare_dns_record", MANAGED_TRANSFORMS) == MANAGED_TRANSFORMS
 
