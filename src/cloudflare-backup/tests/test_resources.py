@@ -4,6 +4,7 @@ import pytest
 
 from backuphelper_cloudflare.resources import (
     ACCOUNT_RESOURCE_TYPES,
+    DEFAULT_DENY_TYPES,
     ZONE_RESOURCE_TYPES,
     classify_scope,
     curated_types,
@@ -34,7 +35,6 @@ ENDPOINTS: dict[str, str | None] = {
     "cloudflare_spectrum_application": "/zones/{zone_id}/spectrum/apps",
     "cloudflare_web_analytics_site": "/accounts/{account_id}/rum/site_info/list",
     "cloudflare_workers_route": "/zones/{zone_id}/workers/routes",
-    "cloudflare_snippets": "/zones/{zone_id}/snippets",
     "cloudflare_snippet_rules": "/zones/{zone_id}/snippets/snippet_rules",
     "cloudflare_account_member": "/accounts/{account_id}/members",
     "cloudflare_account_subscription": "/accounts/{account_id}/subscriptions",
@@ -86,6 +86,14 @@ def test_moved_types_are_exported_at_their_api_scope():
                   "cloudflare_web_analytics_site"):
         assert (rtype, "account") in pairs and (rtype, "zone") not in pairs
         assert classify_scope(rtype) == "account"
-    for rtype in ("cloudflare_snippets", "cloudflare_snippet_rules"):
-        assert (rtype, "zone") in pairs and (rtype, "account") not in pairs
-        assert classify_scope(rtype) == "zone"
+    assert ("cloudflare_snippet_rules", "zone") in pairs
+    assert ("cloudflare_snippet_rules", "account") not in pairs
+    assert classify_scope("cloudflare_snippet_rules") == "zone"
+
+
+def test_nonfunctional_snippets_resource_is_denied_by_default():
+    # Provider 5.x: cloudflare_snippets fails every operation ("use
+    # cloudflare_snippet instead"); cf-terraforming 0.27 exports it without code.
+    assert "cloudflare_snippets" in DEFAULT_DENY_TYPES
+    assert not any(rtype == "cloudflare_snippets" for rtype, _ in curated_types("all"))
+    assert not DEFAULT_DENY_TYPES & (set(ZONE_RESOURCE_TYPES) | set(ACCOUNT_RESOURCE_TYPES))
