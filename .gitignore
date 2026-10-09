@@ -27,6 +27,8 @@ dist/
 /probe/
 scratch/
 tmp/
+# per-run TLS material of the CI mock API (tests/backup-roundtrip/prepare.sh)
+tests/backup-roundtrip/.tls/
 *.tar.gz
 !**/testdata/**/*.tar.gz
 
