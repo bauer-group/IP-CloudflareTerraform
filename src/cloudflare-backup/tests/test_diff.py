@@ -55,3 +55,19 @@ def test_version_gate_warns_on_mismatch(tmp_path):
                            "cf_terraforming_version": "v0.27.0", "tofu_version": "v1.11.0"}}))
     result = diff_trees(a, b)
     assert result.version_warning and "provider_version" in result.version_warning
+
+
+def test_zone_selection_leaves_other_zones_out(tmp_path):
+    # drift --zone exports one zone: the baseline's other zones are not "removed".
+    a, b = tmp_path / "a", tmp_path / "b"
+    for tree in (a, b):
+        _write(tree, "main.tf", "terraform {}\n")
+        _write(tree, "_account/acct1/cloudflare_ruleset.tf", "resource r {}\n")
+    _write(a, "zones/x.com/dns.tf", 'resource x {\n  ip = "1.1.1.1"\n}\n')
+    _write(b, "zones/x.com/dns.tf", 'resource x {\n  ip = "2.2.2.2"\n}\n')
+    _write(a, "zones/y.org/dns.tf", "resource y {}\n")  # not in the fresh export
+    result = diff_trees(a, b, zones=["x.com"])
+    assert result.changed == ["zones/x.com/dns.tf"]
+    assert result.removed == [] and result.added == []
+    # Without the selection the other zone counts as removed.
+    assert diff_trees(a, b).removed == ["zones/y.org/dns.tf"]

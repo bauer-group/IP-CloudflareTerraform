@@ -12,7 +12,7 @@ import difflib
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Iterable, Optional
 
 from .export import EXPORT_MANIFEST_NAME
 
@@ -30,12 +30,18 @@ class DiffResult:
         return bool(self.added or self.removed or self.changed)
 
 
-def _tf_files(root: Path) -> dict[str, str]:
+def _tf_files(root: Path, zones: Optional[set[str]] = None) -> dict[str, str]:
+    """Every ``.tf`` file of a tree by relative path; with ``zones``, files of
+    other zones (``zones/<dir>/...``) are left out."""
     root = Path(root)
     files: dict[str, str] = {}
     for path in root.rglob("*.tf"):
         if path.is_file():
             rel = path.relative_to(root).as_posix()
+            parts = rel.split("/")
+            other_zone = len(parts) > 2 and parts[0] == "zones" and parts[1] not in (zones or ())
+            if zones is not None and other_zone:
+                continue
             files[rel] = path.read_text(encoding="utf-8", errors="replace")
     return files
 
@@ -62,10 +68,15 @@ def _normalize(text: str) -> list[str]:
 
 
 def diff_trees(tree_a: Path, tree_b: Path, *, raw: bool = False,
-               label_a: str = "a", label_b: str = "b") -> DiffResult:
-    """Diff every ``.tf`` file under two export trees."""
-    files_a = _tf_files(tree_a)
-    files_b = _tf_files(tree_b)
+               label_a: str = "a", label_b: str = "b",
+               zones: Optional[Iterable[str]] = None) -> DiffResult:
+    """Diff every ``.tf`` file under two export trees. ``zones`` (zone
+    directory names) limits the zone files compared to those zones - for a
+    tree exported with a zone selection, whose other zones are absent rather
+    than removed."""
+    only = set(zones) if zones is not None else None
+    files_a = _tf_files(tree_a, only)
+    files_b = _tf_files(tree_b, only)
     keys_a, keys_b = set(files_a), set(files_b)
 
     result = DiffResult(
