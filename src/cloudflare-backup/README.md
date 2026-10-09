@@ -48,7 +48,10 @@ Key `cloudflare` source keys: `account_id`, `zones` (`"auto"` or a list),
 `resource_scope` (`all|zone|account`), `resource_discovery` (`curated|schema`),
 `resource_types` / `account_resource_types` / `deny_types` overrides,
 `throttle_rps` (default 4, respecting the 1200 req / 5 min limit),
-`provider_version`, `modern_import_block`.
+`provider_version`, `modern_import_block`, `api_base` (the Cloudflare API
+endpoint for zone discovery, cf-terraforming and the OpenTofu provider; the
+default is the real API, a non-default value is passed to both tools as
+`CLOUDFLARE_BASE_URL` — for tests against a mock API).
 
 ## Restore
 
