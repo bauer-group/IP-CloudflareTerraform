@@ -180,10 +180,21 @@ _RESOURCE_BLOCK = re.compile(r'^resource\s+"([^"]+)"\s+"([^"]+)"\s*\{', re.M)
 _IMPORT_BLOCK = re.compile(
     r'import\s*\{\s*to\s*=\s*([A-Za-z0-9_]+)\.([A-Za-z0-9_-]+)\s+'
     r'id\s*=\s*"((?:[^"\\]|\\.)*)"\s*\}')
+# The start of any import block, whatever its layout.
+_IMPORT_START = re.compile(r"^\s*import\s*\{", re.M)
 # cf-terraforming names every resource terraform_managed_resource_<id>_<index>.
 _GENERATED_NAME = re.compile(r"^terraform_managed_resource_(.+)_(\d+)$")
 # A top-level string attribute of a resource block (two-space indent).
 _TOP_LEVEL_STRING = re.compile(r'^  ([A-Za-z0-9_]+)\s*=\s*"((?:[^"\\]|\\.)*)"\s*$', re.M)
+
+
+def _import_blocks(blocks: str) -> Optional[list[tuple[str, str, str]]]:
+    """``(type, name, id)`` of every import block in ``blocks``, or None when
+    a block is not in the layout above (e.g. a later cf-terraforming adds an
+    attribute). The rewrites below rebuild the file from the blocks they
+    read, so they leave such output unchanged rather than lose a block."""
+    found = _IMPORT_BLOCK.findall(blocks)
+    return found if len(found) == len(_IMPORT_START.findall(blocks)) else None
 
 
 def import_block(resource_type: str, name: str, import_id: str) -> str:
@@ -216,11 +227,11 @@ def reconcile_imports(resource_type: str, hcl: str, blocks: str) -> tuple[str, i
     whole scope fails. Each block is therefore re-pointed to the generated
     resource with the same ``<id>``; blocks without one are dropped.
 
-    Returns ``(blocks, dropped)``. Output whose resource names cannot be read
-    is returned unchanged.
+    Returns ``(blocks, dropped)``. Output whose resource names or import
+    blocks cannot all be read is returned unchanged.
     """
     names = [name for name, _ in _resources(hcl, resource_type)]
-    imports = _IMPORT_BLOCK.findall(blocks)
+    imports = _import_blocks(blocks)
     if not names or not imports:
         return blocks, 0
     by_id: dict[str, list[str]] = {}
@@ -409,9 +420,13 @@ def drop_imports_with_id(blocks: str, import_id: str) -> tuple[str, int]:
     cf-terraforming 0.27 uses the scope id as the id of every object its list
     endpoint returns without an ``id`` field (e.g. Turnstile widgets, queues,
     Web Analytics sites), which yields ``<scope id>/<scope id>``: an object
-    that does not exist, and an import that fails the whole plan."""
+    that does not exist, and an import that fails the whole plan. Output
+    whose import blocks cannot all be read is returned unchanged."""
+    imports = _import_blocks(blocks)
+    if imports is None:
+        return blocks, 0
     kept, dropped = [], 0
-    for rtype, name, block_id in _IMPORT_BLOCK.findall(blocks):
+    for rtype, name, block_id in imports:
         if block_id == import_id:
             dropped += 1
             continue
