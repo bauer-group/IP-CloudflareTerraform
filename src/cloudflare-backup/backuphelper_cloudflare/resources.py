@@ -78,6 +78,14 @@ DYNAMIC_ID_TYPES: frozenset[str] = frozenset({
 # CloudflareConfig.legacy_api_hostname for how it follows a custom api_base.
 LEGACY_CLIENT_TYPES: frozenset[str] = frozenset({"cloudflare_ruleset"})
 
+# Types whose API object has no "id", so cf-terraforming's import blocks carry
+# "<account_id>/<account_id>" and OpenTofu cannot import them. Their import ids
+# are built from these attributes of each generated resource instead, in the
+# provider's import format.
+IMPORT_ID_ATTRIBUTES: dict[str, tuple[str, ...]] = {
+    "cloudflare_zero_trust_tunnel_cloudflared_config": ("account_id", "tunnel_id"),
+}
+
 # The stable set used to classify scope when enumerating the provider schema.
 # Anything NOT in here is treated as zone-scoped; a misclassified new
 # account-only resource simply errors under -z and is skipped (safe).

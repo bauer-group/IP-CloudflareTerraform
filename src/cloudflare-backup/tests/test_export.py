@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from fakes import make_cf_run, make_fetch, make_tofu_run, zone_page
+from fakes import make_cf_run, make_fetch, make_tofu_run, proc, zone_page
 
 from backuphelper_cloudflare.config import CloudflareConfig
 from backuphelper_cloudflare.export import EXPORT_MANIFEST_NAME, export
@@ -308,3 +308,50 @@ def test_legacy_client_type_is_not_sent_to_the_real_api(tmp_path):
     assert len(result.errors) == 1
     assert "cloudflare_ruleset (zone=z1) not exported" in result.errors[0]
     assert (tmp_path / "out" / "zones" / "a.com" / "cloudflare_dns_record.tf").exists()
+
+
+def test_import_blocks_follow_the_generated_rulesets(tmp_path):
+    cfg = _cfg(resource_types="cloudflare_ruleset", resource_scope="zone")
+    hcl = ('resource "cloudflare_ruleset" "terraform_managed_resource_bbb_0" {\n'
+           '  kind = "zone"\n}\n')
+    imports = ('import {\n  to = cloudflare_ruleset.terraform_managed_resource_aaa_0\n'
+               '  id = "zones/z1/aaa"\n}\n\n'
+               'import {\n  to = cloudflare_ruleset.terraform_managed_resource_bbb_1\n'
+               '  id = "zones/z1/bbb"\n}\n')
+    fake = make_cf_run({"cloudflare_ruleset": hcl})
+
+    def run_cf(argv, **kwargs):
+        if argv[1] == "import":
+            return proc(stdout=imports.encode())
+        return fake(argv, **kwargs)
+
+    result = export(cfg, tmp_path / "out", env=ENV,
+                    run_tofu=make_tofu_run({"cloudflare_ruleset"}), run_cf=run_cf,
+                    fetch=make_fetch([zone_page([("z1", "a.com", "acct1")])]),
+                    sleep=lambda s: None)
+    written = (tmp_path / "out" / "zones" / "a.com" / "imports.tf").read_text()
+    # The managed ruleset (aaa) has no resource; bbb is re-pointed to index 0.
+    assert "terraform_managed_resource_aaa_0" not in written
+    assert ('to = cloudflare_ruleset.terraform_managed_resource_bbb_0\n'
+            '  id = "zones/z1/bbb"') in written
+    assert any("1 import block(s) without a generated resource dropped" in s
+               for s in result.skipped)
+    assert result.errors == []
+
+
+def test_tunnel_config_imports_use_the_tunnel_id(tmp_path):
+    rtype = "cloudflare_zero_trust_tunnel_cloudflared_config"
+    cfg = _cfg(resource_types="", resource_scope="account", account_resource_types=rtype)
+    tunnels = {"success": True, "result": [{"id": "t1", "name": "a"}],
+               "result_info": {"total_pages": 1}}
+    hcl = (f'resource "{rtype}" "terraform_managed_resource_acct1_0" {{\n'
+           '  account_id = "acct1"\n  tunnel_id  = "t1"\n}\n')
+    record: list = []
+    result = export(cfg, tmp_path / "out", env=ENV, run_tofu=make_tofu_run({rtype}),
+                    run_cf=make_cf_run({rtype: hcl}, record=record),
+                    fetch=make_fetch([tunnels]), sleep=lambda s: None)
+    written = (tmp_path / "out" / "_account" / "acct1" / "imports.tf").read_text()
+    assert 'id = "acct1/t1"' in written
+    # cf-terraforming's own import blocks ("acct1/acct1") are not used for it.
+    assert not any(len(a) > 1 and a[1] == "import" for a in record)
+    assert result.errors == []

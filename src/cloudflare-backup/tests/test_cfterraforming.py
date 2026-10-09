@@ -92,3 +92,51 @@ def test_benign_skip_reason():
     assert cft.benign_skip_reason("429 Too Many Requests") is None
     assert cft.benign_skip_reason("connection reset by peer") is None
     assert cft.benign_skip_reason("") is None
+
+
+def _imports(*pairs: tuple[str, str]) -> str:
+    return "\n".join(f'import {{\n  to = {to}\n  id = "{id_}"\n}}\n' for to, id_ in pairs)
+
+
+def test_reconcile_imports_follows_the_generated_resources():
+    # cf-terraforming 0.27 + provider v5: generate drops managed rulesets and
+    # sorts by phase, import lists every ruleset in API order.
+    hcl = ('resource "cloudflare_ruleset" "terraform_managed_resource_bbb_0" {\n'
+           '  kind = "zone"\n}\n\n'
+           'resource "cloudflare_ruleset" "terraform_managed_resource_ccc_1" {\n'
+           '  kind = "zone"\n}\n')
+    imports = _imports(
+        ("cloudflare_ruleset.terraform_managed_resource_aaa_0", "zones/z1/aaa"),  # managed
+        ("cloudflare_ruleset.terraform_managed_resource_ccc_1", "zones/z1/ccc"),
+        ("cloudflare_ruleset.terraform_managed_resource_bbb_2", "zones/z1/bbb"))
+    blocks, dropped = cft.reconcile_imports("cloudflare_ruleset", hcl, imports)
+    assert dropped == 1
+    assert blocks == _imports(
+        ("cloudflare_ruleset.terraform_managed_resource_ccc_1", "zones/z1/ccc"),
+        ("cloudflare_ruleset.terraform_managed_resource_bbb_0", "zones/z1/bbb"))
+
+
+def test_reconcile_imports_keeps_matching_blocks_and_ids_with_underscores():
+    hcl = ('resource "cloudflare_zone_setting" "terraform_managed_resource_always_online_0" {}\n'
+           'resource "cloudflare_zone_setting" "terraform_managed_resource_0rtt_1" {}\n')
+    imports = _imports(
+        ("cloudflare_zone_setting.terraform_managed_resource_always_online_0", "z1/always_online"),
+        ("cloudflare_zone_setting.terraform_managed_resource_0rtt_1", "z1/0rtt"))
+    assert cft.reconcile_imports("cloudflare_zone_setting", hcl, imports) == (imports, 0)
+
+
+def test_reconcile_imports_leaves_unreadable_output_alone():
+    imports = _imports(("cloudflare_dns_record.x", "abc"))
+    assert cft.reconcile_imports("cloudflare_dns_record", "resource x {}", imports) == (imports, 0)
+
+
+def test_imports_from_attributes_builds_provider_ids():
+    rtype = "cloudflare_zero_trust_tunnel_cloudflared_config"
+    hcl = (f'resource "{rtype}" "terraform_managed_resource_acct1_0" {{\n'
+           '  account_id = "acct1"\n  source     = "cloudflare"\n  tunnel_id  = "t1"\n'
+           '  config = {\n    ingress = [{\n      service = "http_status:404"\n    }]\n  }\n}\n\n'
+           f'resource "{rtype}" "terraform_managed_resource_acct1_1" {{\n'
+           '  account_id = "acct1"\n}\n')
+    blocks, missing = cft.imports_from_attributes(rtype, hcl, ("account_id", "tunnel_id"))
+    assert blocks == _imports((f"{rtype}.terraform_managed_resource_acct1_0", "acct1/t1"))
+    assert missing == ["terraform_managed_resource_acct1_1"]
