@@ -12,6 +12,10 @@ It opens the snapshot the way `cloudflare diff` and `cloudflare apply` do
 import json
 import sys
 
+# The engine CLI first: it loads the cloudflare command plugin, which imports
+# backuphelper_cloudflare.snapshot - importing that module first would make
+# the plugin's import circular and the engine log that it failed to load.
+import backuphelper.cli  # noqa: F401
 from backuphelper_cloudflare.export import EXPORT_MANIFEST_NAME
 from backuphelper_cloudflare.snapshot import open_export
 
