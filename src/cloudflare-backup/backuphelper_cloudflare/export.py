@@ -139,6 +139,8 @@ def _build_env(cfg: CloudflareConfig, token: str, base_env: Optional[Mapping[str
     env["CLOUDFLARE_API_TOKEN"] = token
     if cfg.account_id:
         env.setdefault("CLOUDFLARE_ACCOUNT_ID", cfg.account_id)
+    # cf-terraforming reads from the same endpoint as the zone discovery.
+    env.update(cfg.api_env())
     return env
 
 

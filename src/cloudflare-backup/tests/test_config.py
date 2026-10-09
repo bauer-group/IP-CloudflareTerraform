@@ -81,3 +81,30 @@ def test_tofu_binary_path_resolves_bare_name_via_which(monkeypatch):
     cfg = CloudflareConfig.from_spec({"type": "cloudflare"})  # default tofu_binary="tofu"
     # cf-terraforming stats the literal path, so a bare name must be resolved.
     assert cfg.tofu_binary_path() == "/opt/bin/tofu"
+
+
+def test_api_base_default_and_blank():
+    for spec in ({"type": "cloudflare"}, {"type": "cloudflare", "api_base": ""}):
+        cfg = CloudflareConfig.from_spec(spec)
+        assert cfg.api_base == "https://api.cloudflare.com/client/v4"
+        # The default endpoint adds nothing to the environment of the tools.
+        assert cfg.api_env() == {}
+
+
+def test_api_base_custom_is_handed_to_the_tools():
+    cfg = CloudflareConfig.from_spec({"type": "cloudflare",
+                                      "api_base": "http://cf-mock:8080/client/v4/"})
+    assert cfg.api_base == "http://cf-mock:8080/client/v4"
+    assert cfg.api_env() == {"CLOUDFLARE_BASE_URL": "http://cf-mock:8080/client/v4"}
+
+
+def test_api_base_default_with_trailing_slash_is_default():
+    cfg = CloudflareConfig.from_spec({"type": "cloudflare",
+                                      "api_base": "https://api.cloudflare.com/client/v4/"})
+    assert cfg.api_env() == {}
+
+
+@pytest.mark.parametrize("bad", ["api.cloudflare.com/client/v4", "ftp://host/client/v4", "http://"])
+def test_api_base_must_be_http_url(bad):
+    with pytest.raises(ConfigError):
+        CloudflareConfig.from_spec({"type": "cloudflare", "api_base": bad})

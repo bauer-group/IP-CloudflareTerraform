@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Optional, Union
+from urllib.parse import urlsplit
 
 # Provider/tooling pins — aligned with the existing IAMStack
 # infrastructure/cloudflare module (validated against provider v5.21.1).
@@ -73,6 +74,9 @@ class CloudflareConfig:
     required_version: str = DEFAULT_REQUIRED_VERSION
     tofu_binary: str = "tofu"
     cfterraforming_binary: str = "cf-terraforming"
+    # Cloudflare API v4 base URL. Besides the zone discovery it is handed to
+    # cf-terraforming and the OpenTofu provider (see ``api_env``), so all three
+    # talk to the same endpoint - the real API by default, a mock API in tests.
     api_base: str = DEFAULT_API_BASE
 
     # Behaviour.
@@ -91,6 +95,16 @@ class CloudflareConfig:
         if os.path.isabs(self.tofu_binary):
             return self.tofu_binary
         return shutil.which(self.tofu_binary) or self.tofu_binary
+
+    def api_env(self) -> dict[str, str]:
+        """Environment that points cf-terraforming and the OpenTofu provider at
+        ``api_base``. Both read ``CLOUDFLARE_BASE_URL`` (cloudflare-go v4+);
+        cf-terraforming's legacy client, which it still uses for
+        ``cloudflare_ruleset``, does not. Empty for the default endpoint, so a
+        stock deployment's environment stays exactly as it was."""
+        if self.api_base == DEFAULT_API_BASE:
+            return {}
+        return {"CLOUDFLARE_BASE_URL": self.api_base}
 
     def resolve_token(self, env: Optional[Mapping[str, str]] = None) -> str:
         """The API token, preferring the container env over the spec."""
@@ -128,6 +142,12 @@ class CloudflareConfig:
         resource_ids = ({str(k): _as_list(v) for k, v in raw_ids.items()}
                         if isinstance(raw_ids, dict) else {})
 
+        # An empty value (an unset compose variable) means the default endpoint.
+        api_base = str(s.get("api_base") or DEFAULT_API_BASE).strip().rstrip("/")
+        parsed = urlsplit(api_base)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ConfigError(f"api_base must be an http(s) URL, got {api_base!r}")
+
         try:
             throttle = float(s.get("throttle_rps", 4.0))
         except (TypeError, ValueError) as exc:
@@ -150,7 +170,7 @@ class CloudflareConfig:
             required_version=str(s.get("required_version", DEFAULT_REQUIRED_VERSION)),
             tofu_binary=str(s.get("tofu_binary", "tofu")),
             cfterraforming_binary=str(s.get("cfterraforming_binary", "cf-terraforming")),
-            api_base=str(s.get("api_base", DEFAULT_API_BASE)).rstrip("/"),
+            api_base=api_base,
             throttle_rps=throttle,
             timeout=int(s.get("timeout", 900)),
             modern_import_block=_as_bool(s.get("modern_import_block"), True),

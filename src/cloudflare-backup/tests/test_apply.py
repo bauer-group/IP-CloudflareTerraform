@@ -85,3 +85,32 @@ def test_apply_force_skips_confirm(tmp_path):
     result = apply_export(root, cfg, zone_slug="a.com", force=True,
                           env=ENV, run_tofu=make_tofu_run())
     assert result.applied is True
+
+
+def _tofu_envs(run, envs):
+    def wrapper(argv, **kwargs):
+        envs.append(kwargs.get("env") or {})
+        return run(argv, **kwargs)
+    return wrapper
+
+
+def test_apply_uses_custom_api_base(tmp_path):
+    root = _tree(tmp_path)
+    cfg = CloudflareConfig.from_spec({"type": "cloudflare",
+                                      "api_base": "http://cf-mock:8080/client/v4"})
+    envs: list = []
+    apply_export(root, cfg, zone_slug="a.com", force=True,
+                 env=ENV, run_tofu=_tofu_envs(make_tofu_run(), envs))
+    assert envs
+    assert all(e["CLOUDFLARE_BASE_URL"] == "http://cf-mock:8080/client/v4" for e in envs)
+
+
+def test_apply_default_api_base_adds_no_base_url(tmp_path, monkeypatch):
+    monkeypatch.delenv("CLOUDFLARE_BASE_URL", raising=False)
+    root = _tree(tmp_path)
+    cfg = CloudflareConfig.from_spec({"type": "cloudflare"})
+    envs: list = []
+    apply_export(root, cfg, zone_slug="a.com", force=True,
+                 env=ENV, run_tofu=_tofu_envs(make_tofu_run(), envs))
+    assert envs
+    assert all("CLOUDFLARE_BASE_URL" not in e for e in envs)

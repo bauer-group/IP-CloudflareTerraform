@@ -35,7 +35,7 @@ def _urllib_fetch(url: str, token: str, *, timeout: int = 30) -> dict:
         headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
     )
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 - fixed https host
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 - scheme checked by config
             return json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", "replace")[:500]
