@@ -1,0 +1,35 @@
+# =============================================================================
+# CloudflareTerraform — CI-only override for the backup round trip
+# -----------------------------------------------------------------------------
+# Never part of a deployment. Adds a mock of the Cloudflare API (cf-mock, the
+# stdlib server in ./cf-mock) next to cf-backup, so the release gate can back
+# up, tamper with and restore DNS records without a Cloudflare account. The
+# round-trip job in .github/workflows/docker-release.yml points the cloudflare
+# source at the mock through .env (CLOUDFLARE_API_BASE_URL) and generates
+# CLOUDFLARE_API_TOKEN per run - the only token the mock accepts.
+# Paths are relative to the first compose file, the repository root.
+# See docs/BACKUP.md#round-trip-test-in-ci.
+# =============================================================================
+
+services:
+  cf-mock:
+    image: python:3-alpine
+    command: ["python", "-u", "/mock/server.py"]
+    user: "65534:65534"
+    read_only: true
+    environment:
+      MOCK_API_TOKEN: ${CLOUDFLARE_API_TOKEN:?generated per run by the round-trip workflow}
+      MOCK_PAGE_SIZE: "2"
+      PYTHONDONTWRITEBYTECODE: "1"
+    volumes:
+      - ./tests/backup-roundtrip/cf-mock:/mock:ro
+    healthcheck:
+      test: ["CMD", "python", "/mock/mockctl.py", "health"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  cf-backup:
+    depends_on:
+      cf-mock:
+        condition: service_healthy
