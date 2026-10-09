@@ -357,6 +357,46 @@ def test_tunnel_config_imports_use_the_tunnel_id(tmp_path):
     assert result.errors == []
 
 
+def test_import_ids_naming_the_account_twice_are_reported(tmp_path):
+    # Turnstile widgets have no "id" in the API: cf-terraforming imports them
+    # as "<account>/<account>", which cannot exist.
+    rtype = "cloudflare_turnstile_widget"
+    cfg = _cfg(resource_types="", resource_scope="account", account_resource_types=rtype)
+    hcl = (f'resource "{rtype}" "terraform_managed_resource_acct1_0" {{\n'
+           '  account_id = "acct1"\n  name       = "login"\n}\n')
+    imports = (f'import {{\n  to = {rtype}.terraform_managed_resource_acct1_0\n'
+               '  id = "acct1/acct1"\n}\n')
+    fake = make_cf_run({rtype: hcl})
+
+    def run_cf(argv, **kwargs):
+        if argv[1] == "import":
+            return proc(stdout=imports.encode())
+        return fake(argv, **kwargs)
+
+    result = export(cfg, tmp_path / "out", env=ENV, run_tofu=make_tofu_run({rtype}),
+                    run_cf=run_cf, fetch=make_fetch([zone_page([("z1", "a.com", "acct1")])]),
+                    sleep=lambda s: None)
+    assert (tmp_path / "out" / "_account" / "acct1" / f"{rtype}.tf").exists()
+    assert not (tmp_path / "out" / "_account" / "acct1" / "imports.tf").exists()
+    assert len(result.errors) == 1 and "1 resource(s) without an import id" in result.errors[0]
+
+
+def test_r2_bucket_imports_use_name_and_jurisdiction(tmp_path):
+    rtype = "cloudflare_r2_bucket"
+    cfg = _cfg(resource_types="", resource_scope="account", account_resource_types=rtype)
+    hcl = (f'resource "{rtype}" "terraform_managed_resource_acct1_0" {{\n'
+           '  account_id = "acct1"\n  name       = "assets"\n}\n')
+    record: list = []
+    result = export(cfg, tmp_path / "out", env=ENV, run_tofu=make_tofu_run({rtype}),
+                    run_cf=make_cf_run({rtype: hcl}, record=record),
+                    fetch=make_fetch([zone_page([("z1", "a.com", "acct1")])]),
+                    sleep=lambda s: None)
+    written = (tmp_path / "out" / "_account" / "acct1" / "imports.tf").read_text()
+    assert 'id = "acct1/assets/default"' in written
+    assert not any(len(a) > 1 and a[1] == "import" for a in record)
+    assert result.errors == []
+
+
 def test_empty_snippet_rules_wrapper_is_not_written(tmp_path):
     cfg = _cfg(resource_types="cloudflare_snippet_rules", resource_scope="zone")
     empty = ('resource "cloudflare_snippet_rules" "terraform_managed_resource_z1_0" {\n'

@@ -342,6 +342,8 @@ def imports_from_attributes(resource_type: str, hcl: str,
                             attributes: tuple[str, ...]) -> tuple[str, list[str]]:
     """Import blocks whose id is built from each generated resource's own
     top-level attributes, joined by ``/`` (e.g. ``<account_id>/<tunnel_id>``).
+    An attribute given as ``name=default`` falls back to ``default`` when the
+    resource does not set it.
 
     For types whose API object has no ``id`` cf-terraforming substitutes the
     scope id, which yields an import id OpenTofu cannot resolve. Returns
@@ -351,9 +353,30 @@ def imports_from_attributes(resource_type: str, hcl: str,
     missing: list[str] = []
     for name, body in _resources(hcl, resource_type):
         values = dict(_TOP_LEVEL_STRING.findall(body))
-        if not all(values.get(attr) for attr in attributes):
+        parts = []
+        for spec in attributes:
+            attribute, _, default = spec.partition("=")
+            parts.append(values.get(attribute) or default)
+        if not all(parts):
             missing.append(name)
             continue
-        kept.append(import_block(resource_type, name,
-                                 "/".join(values[attr] for attr in attributes)))
+        kept.append(import_block(resource_type, name, "/".join(parts)))
     return "\n".join(kept), missing
+
+
+def drop_imports_with_id(blocks: str, import_id: str) -> tuple[str, int]:
+    """``blocks`` without the import blocks whose id is ``import_id``.
+
+    cf-terraforming 0.27 uses the scope id as the id of every object its list
+    endpoint returns without an ``id`` field (e.g. Turnstile widgets, queues,
+    Web Analytics sites), which yields ``<scope id>/<scope id>``: an object
+    that does not exist, and an import that fails the whole plan."""
+    kept, dropped = [], 0
+    for rtype, name, block_id in _IMPORT_BLOCK.findall(blocks):
+        if block_id == import_id:
+            dropped += 1
+            continue
+        kept.append(import_block(rtype, name, block_id))
+    if not dropped:
+        return blocks, 0
+    return "\n".join(kept), dropped
