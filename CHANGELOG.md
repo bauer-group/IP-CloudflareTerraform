@@ -4,6 +4,20 @@ All notable changes to this project are documented here. This file is maintained
 automatically by [semantic-release](https://github.com/semantic-release/semantic-release)
 on every release to `main`.
 
+## [0.2.0](https://github.com/bauer-group/IP-CloudflareTerraform/compare/v0.1.7...v0.2.0) (2026-10-09)
+
+### 🚀 Features
+
+* **compose:** exposed resource types and the API base URL in .env ([eb48aa6](https://github.com/bauer-group/IP-CloudflareTerraform/commit/eb48aa6965ae8e543a16b50dfa59da232ce50fb1))
+
+### 🐛 Bug Fixes
+
+* **cf-backup:** pointed cf-terraforming and OpenTofu at api_base ([f5fe530](https://github.com/bauer-group/IP-CloudflareTerraform/commit/f5fe530128e1b137314e7fc3ee3da44a9158302e))
+
+### 🔧 Maintenance
+
+* synced Dockerfile versions to 0.1.7 [skip ci] ([db03698](https://github.com/bauer-group/IP-CloudflareTerraform/commit/db03698869d3538dbbf72402ad2e289f97299f7a))
+
 ## [0.1.7](https://github.com/bauer-group/IP-CloudflareTerraform/compare/v0.1.6...v0.1.7) (2026-10-08)
 
 ### 🔧 Maintenance
