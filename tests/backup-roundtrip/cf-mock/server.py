@@ -11,13 +11,13 @@ https - and the OpenTofu provider.
 Fixture (see Store): the account "Backup Round Trip" with two custom rulesets
 (a root entry point that executes a custom ruleset) and a managed one, three
 Workers KV namespaces, a Cloudflare Tunnel and its ingress configuration, a
-load balancer monitor and pool; three zones (alpha, bravo, charlie.example),
-each with DNS records, the 27 zone settings the plugin exports, bot
-management, URL normalization and managed transforms, each listing a managed
-ruleset; charlie.example also has a custom firewall ruleset and a load
-balancer. Every other curated type answers with an empty list. Ids are
-derived from names at runtime (sha256), so nothing id- or token-like is stored
-in the repository.
+load balancer monitor and pool and an R2 bucket; three zones (alpha, bravo,
+charlie.example), each with DNS records, the 27 zone settings the plugin
+exports, bot management, URL normalization and managed transforms, each
+listing a managed ruleset; charlie.example also has a custom firewall ruleset
+and a load balancer. Every other curated type answers with an empty list. Ids
+are derived from names at runtime (sha256), so nothing id- or token-like is
+stored in the repository.
 
 Like the real API it answers with the {success, errors, messages, result}
 envelope, needs "Authorization: Bearer <MOCK_API_TOKEN>" on every request and
@@ -125,7 +125,7 @@ ZONE_TYPES_WITH_DATA = (
 MARKER_ZONE_TYPES_WITH_DATA = ("cloudflare_load_balancer", "cloudflare_ruleset")
 ACCOUNT_TYPES_WITH_DATA = (
     "cloudflare_load_balancer_monitor", "cloudflare_load_balancer_pool",
-    "cloudflare_ruleset", "cloudflare_workers_kv_namespace",
+    "cloudflare_r2_bucket", "cloudflare_ruleset", "cloudflare_workers_kv_namespace",
     "cloudflare_zero_trust_tunnel_cloudflared",
     "cloudflare_zero_trust_tunnel_cloudflared_config",
 )
@@ -281,7 +281,7 @@ class Store:
             "check_regions": None, "networks": ["cloudflare"], "notification_email": "",
             "origins": [
                 {"name": "origin-1", "address": "192.0.2.10", "enabled": True, "weight": 1,
-                 "header": {"host": ["charlie.example"]}},
+                 "header": {"Host": ["charlie.example"]}},
                 {"name": "origin-2", "address": "192.0.2.11", "enabled": True, "weight": 0.5},
             ],
         }
@@ -297,6 +297,9 @@ class Store:
             "random_steering": {"default_weight": 1}, "pop_pools": {}, "region_pools": {},
             "networks": ["cloudflare"], "zone_name": MARKER_ZONE,
         }
+        self.r2_buckets = [{"name": "roundtrip-assets", "creation_date": created,
+                            "location": "weur", "storage_class": "Standard",
+                            "jurisdiction": "default"}]
         # Generic collections: (name, zone or account id) -> objects with an "id".
         self.collections: dict[tuple[str, str], list[dict]] = {
             ("load_balancer_monitors", acct): [monitor],
@@ -454,8 +457,9 @@ def listing(items: list, query: dict) -> dict:
 class Request:
     """What a route handler sees of one API request."""
 
-    def __init__(self, method: str, path: str, query: dict, body, raw: bytes):
+    def __init__(self, method: str, path: str, query: dict, body, raw: bytes, headers=None):
         self.method, self.path, self.query, self.body, self.raw = method, path, query, body, raw
+        self.headers = headers if headers is not None else {}
         self.dry_run = query.get("dry_run", [""])[0].lower() == "true"
         self.changed: bool | None = None  # set by handlers of writes
 
@@ -678,6 +682,31 @@ def h_kv_namespace(req: Request, store: Store, account: str, namespace: str) -> 
     return ok(copy.deepcopy(current))
 
 
+@route("r2_buckets", ACCOUNT + r"/r2/buckets", "cloudflare_r2_bucket")
+def h_r2_buckets(req: Request, store: Store, account: str) -> dict:
+    """The bucket list, wrapped in {"buckets": [...]} like the real API."""
+    req.allow("GET")
+    store.check_account(account, req.path)
+    return ok({"buckets": copy.deepcopy(store.r2_buckets)})
+
+
+@route("r2_bucket", ACCOUNT + r"/r2/buckets/(?P<bucket>[a-z0-9][a-z0-9-]{1,61}[a-z0-9])")
+def h_r2_bucket(req: Request, store: Store, account: str, bucket: str) -> dict:
+    req.allow("GET", "PATCH")
+    store.check_account(account, req.path)
+    current = next((b for b in store.r2_buckets if b["name"] == bucket), None)
+    if current is None:
+        raise ApiError(404, 10006, "The specified bucket does not exist.")
+    if req.method == "PATCH":
+        before = semantic(current)
+        storage_class = (req.json_object().get("storage_class")
+                         or req.headers.get("cf-r2-storage-class"))
+        if storage_class:
+            current["storage_class"] = storage_class
+        req.changed = semantic(current) != before
+    return ok(copy.deepcopy(current))
+
+
 @route("tunnels", ACCOUNT + r"/cfd_tunnel", "cloudflare_zero_trust_tunnel_cloudflared")
 def h_tunnels(req: Request, store: Store, account: str) -> dict:
     req.allow("GET")
@@ -782,7 +811,6 @@ EMPTY_ACCOUNT_ROUTES = (
     ("lists", "cloudflare_list", "/rules/lists", []),
     ("notification_policies", "cloudflare_notification_policy", "/alerting/v3/policies", []),
     ("queues", "cloudflare_queue", "/queues", []),
-    ("r2_buckets", "cloudflare_r2_bucket", "/r2/buckets", {"buckets": []}),
     ("turnstile_widgets", "cloudflare_turnstile_widget", "/challenges/widgets", []),
     ("access_apps", "cloudflare_zero_trust_access_application", "/access/apps", []),
     ("access_policies", "cloudflare_zero_trust_access_policy", "/access/policies", []),
@@ -903,7 +931,7 @@ class Handler(BaseHTTPRequestHandler):
             body = json.loads(raw) if raw else None
         except ValueError:
             body = None
-        req = Request(method, path, query, body, raw)
+        req = Request(method, path, query, body, raw, self.headers)
         entry = {"method": method, "path": path, "query": query_string,
                  "client": client_of(self.headers.get("User-Agent") or ""),
                  "probe": self.headers.get("X-Mock-Probe") == "1", "route": None,
