@@ -68,8 +68,9 @@ For automated reconcile, replace step 3 with `--force` (skips the prompt). Never
 run `--force` against production without first reviewing a `--plan-only` run.
 
 This drift-correction path (`--zone <z> --force`) runs on every release against
-a mock Cloudflare API, for DNS records — see
-[BACKUP.md](BACKUP.md#round-trip-test-in-ci).
+a mock Cloudflare API — DNS records, a ruleset and a zone setting are restored,
+then `--plan-only` must find nothing left to change for the zone and for the
+account; see [BACKUP.md](BACKUP.md#round-trip-test-in-ci).
 
 ## MANDATORY: re-inject non-round-tripping secrets
 

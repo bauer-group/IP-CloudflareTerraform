@@ -51,7 +51,9 @@ Key `cloudflare` source keys: `account_id`, `zones` (`"auto"` or a list),
 `provider_version`, `modern_import_block`, `api_base` (the Cloudflare API
 endpoint for zone discovery, cf-terraforming and the OpenTofu provider; the
 default is the real API, a non-default value is passed to both tools as
-`CLOUDFLARE_BASE_URL` — for tests against a mock API).
+`CLOUDFLARE_BASE_URL` and, for cf-terraforming's legacy ruleset client, as
+`CLOUDFLARE_API_HOSTNAME` — for tests against a mock API, which has to be
+https with the path `/client/v4`, or rulesets are not exported).
 
 ## Restore
 
