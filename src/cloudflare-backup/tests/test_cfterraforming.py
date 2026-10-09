@@ -190,6 +190,29 @@ def test_pool_origin_host_header_uses_the_provider_key():
     assert adapted == pool.replace('      Host = ["example.com"]', '      host = ["example.com"]')
 
 
+def test_tunnel_config_keys_use_the_provider_names():
+    rtype = "cloudflare_zero_trust_tunnel_cloudflared_config"
+    # cf-terraforming 0.27 writes the API's keys (its own v5 fixture layout).
+    hcl = (f'resource "{rtype}" "terraform_managed_resource_acct1_0" {{\n'
+           '  account_id = "acct1"\n  tunnel_id  = "t1"\n  config = {\n'
+           '    ingress = [{\n      hostname = "app.example.com"\n'
+           '      originRequest = {\n        noTLSVerify = true\n      }\n'
+           '      service = "https://app:8443"\n      }, {\n'
+           '      service = "http_status:404"\n    }]\n'
+           '    originRequest = {\n      access = {\n        audTag   = ["aud"]\n'
+           '        required = true\n        teamName = "team"\n      }\n'
+           '      connectTimeout = 30\n      httpHostHeader = "app.internal"\n    }\n  }\n}\n')
+    adapted = cft.adapt_to_provider(rtype, hcl)
+    for camel, snake in (("originRequest", "origin_request"), ("noTLSVerify", "no_tls_verify"),
+                         ("audTag", "aud_tag"), ("teamName", "team_name"),
+                         ("connectTimeout", "connect_timeout"),
+                         ("httpHostHeader", "http_host_header")):
+        assert f" {camel} " not in adapted and f" {snake} " in adapted
+    # Values and the other keys are untouched.
+    assert 'hostname = "app.example.com"' in adapted and "required = true" in adapted
+    assert adapted.count("\n") == hcl.count("\n")
+
+
 def test_other_types_are_not_adapted():
     assert cft.adapt_to_provider("cloudflare_dns_record", MANAGED_TRANSFORMS) == MANAGED_TRANSFORMS
 
