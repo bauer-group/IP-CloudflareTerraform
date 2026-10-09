@@ -4,6 +4,27 @@ All notable changes to this project are documented here. This file is maintained
 automatically by [semantic-release](https://github.com/semantic-release/semantic-release)
 on every release to `main`.
 
+## [0.2.2](https://github.com/bauer-group/IP-CloudflareTerraform/compare/v0.2.1...v0.2.2) (2026-10-09)
+
+### 🐛 Bug Fixes
+
+* **cf-backup:** compared only the selected zone in drift --zone ([781688d](https://github.com/bauer-group/IP-CloudflareTerraform/commit/781688d66ac36de64b2e929e3e010214ecc62568))
+* **cf-backup:** dropped the empty load balancer monitor header ([01cceda](https://github.com/bauer-group/IP-CloudflareTerraform/commit/01cceda73f949b68fe2dfea58115ae4e2367c222))
+* **cf-backup:** exported each curated type at the scope of its API ([87fa43a](https://github.com/bauer-group/IP-CloudflareTerraform/commit/87fa43af013e0c3e337f1b4c54bd8b2297d89b61))
+* **cf-backup:** kept import files the rewrites cannot fully read ([d0bca87](https://github.com/bauer-group/IP-CloudflareTerraform/commit/d0bca877113f5e617d07e1cf8b4f857b42e9b01b))
+* **cf-backup:** kept the Host header of load balancer pool origins ([ce8c599](https://github.com/bauer-group/IP-CloudflareTerraform/commit/ce8c5998796c475531015beb17f39bb054f7c58d))
+* **cf-backup:** kept the originRequest settings of tunnel configs ([ae14738](https://github.com/bauer-group/IP-CloudflareTerraform/commit/ae14738b7a1437168f65bdcf40abcf32085a013e))
+* **cf-backup:** pointed import blocks at the generated resources ([780bd52](https://github.com/bauer-group/IP-CloudflareTerraform/commit/780bd52afe199fbabc164c98fd0dc939c512c845))
+* **cf-backup:** removed no-op restore changes for two zone types ([8ed3ec6](https://github.com/bauer-group/IP-CloudflareTerraform/commit/8ed3ec68305ed6aeab658f8e346e5769bebcc83b))
+* **cf-backup:** replaced import ids that name the scope twice ([9df9fc6](https://github.com/bauer-group/IP-CloudflareTerraform/commit/9df9fc668f021519b859e3d0bc6a44661714b749))
+* **cf-backup:** routed cf-terraforming's legacy client to api_base ([1d8c130](https://github.com/bauer-group/IP-CloudflareTerraform/commit/1d8c130c9d477d07be0f1e303948852d6263761f))
+* **cf-backup:** stopped drift --zone on a zone the token cannot see ([59413ad](https://github.com/bauer-group/IP-CloudflareTerraform/commit/59413adfa40fbdd5e0de9d5a749140f87666c151))
+* **cf-backup:** stopped exporting the non-functional snippets type ([540425e](https://github.com/bauer-group/IP-CloudflareTerraform/commit/540425e20bb9d0722586accb039a0ea0b464de38))
+
+### 🔧 Maintenance
+
+* synced Dockerfile versions to 0.2.1 [skip ci] ([a274650](https://github.com/bauer-group/IP-CloudflareTerraform/commit/a274650d0336f6f14c916cead8d758bee4de5209))
+
 ## [0.2.1](https://github.com/bauer-group/IP-CloudflareTerraform/compare/v0.2.0...v0.2.1) (2026-10-09)
 
 ### 🔧 Maintenance
