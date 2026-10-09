@@ -150,7 +150,7 @@ RESOURCE_ID_DEFAULTS: dict[str, tuple[str, ...]] = {
 # capturing by default. Merged with the per-deployment `deny_types`; applies
 # to every discovery mode and to explicit `resource_types` alike.
 #
-# cloudflare_snippets: provider 5.x replaced it with cloudflare_snippet and
+# cloudflare_snippets: provider 5.8.3 replaced it with cloudflare_snippet and
 # left a stub whose create, read, update and delete all fail ("use
 # 'cloudflare_snippet' instead"), so a restore that includes it fails. And
 # cf-terraforming 0.27 exports no snippet code (`files = []`) and no usable

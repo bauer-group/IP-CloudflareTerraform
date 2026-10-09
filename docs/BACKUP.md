@@ -66,7 +66,7 @@ add `CLOUDFLARE_RESOURCE_SCOPE=zone` to export only the listed types.
 > **Snippets are not exported (built-in deny list).** cf-terraforming 0.27.0
 > exports `cloudflare_snippets` without the snippet code (`files = []`) and
 > without a usable import id, and has no endpoint for its successor
-> `cloudflare_snippet`. Provider 5.x keeps `cloudflare_snippets` only as a stub
+> `cloudflare_snippet`. Provider 5.8.3+ keeps `cloudflare_snippets` only as a stub
 > whose every operation fails ("use 'cloudflare_snippet' instead"), so a
 > restore that included it would fail. The source therefore never exports it,
 > in any discovery mode and even when it is listed in `resource_types`. Snippet

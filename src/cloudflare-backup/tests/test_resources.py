@@ -92,7 +92,7 @@ def test_moved_types_are_exported_at_their_api_scope():
 
 
 def test_nonfunctional_snippets_resource_is_denied_by_default():
-    # Provider 5.x: cloudflare_snippets fails every operation ("use
+    # Provider 5.8.3+: cloudflare_snippets fails every operation ("use
     # cloudflare_snippet instead"); cf-terraforming 0.27 exports it without code.
     assert "cloudflare_snippets" in DEFAULT_DENY_TYPES
     assert not any(rtype == "cloudflare_snippets" for rtype, _ in curated_types("all"))

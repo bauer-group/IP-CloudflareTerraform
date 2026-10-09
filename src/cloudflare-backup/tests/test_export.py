@@ -424,7 +424,7 @@ def _generated(record: list, resource_type: str) -> list[list[str]]:
     {"resource_types": "cloudflare_snippets,cloudflare_snippet_rules", "resource_scope": "zone"},
 ], ids=["curated", "schema", "explicit"])
 def test_nonfunctional_snippets_resource_is_never_exported(tmp_path, over):
-    # Provider 5.x's cloudflare_snippets fails every operation, so a restore
+    # Provider 5.8.3+'s cloudflare_snippets fails every operation, so a restore
     # including it fails; the snippet rules are exported as before.
     cfg = _cfg(**over)
     rtypes = {"cloudflare_snippets", "cloudflare_snippet_rules"}
