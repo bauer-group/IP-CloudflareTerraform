@@ -67,6 +67,16 @@ docker compose run --rm -e CLOUDFLARE_API_TOKEN cf-backup \
 For automated reconcile, replace step 3 with `--force` (skips the prompt). Never
 run `--force` against production without first reviewing a `--plan-only` run.
 
+**Creates in a drift-correction plan.** A drift-correction imports the live
+resources first; a resource that plans as `will be created` had no import
+block. If its live object still exists, the apply creates a second one or
+fails on a name conflict. The export lists the known cases under `errors` in
+the snapshot's `EXPORT_MANIFEST.json` ("without an import id" / "no import
+id"): Turnstile widgets (a new widget gets a new site key), queues and Web
+Analytics sites — see [BACKUP.md](BACKUP.md#what-gets-exported). `--force`
+does not check for them, so do not run it unattended on such a scope: review
+the plan and approve it only if those objects are really gone.
+
 This drift-correction path (`--zone <z> --force`) runs on every release against
 a mock Cloudflare API — DNS records, a ruleset and a zone setting are restored,
 then `--plan-only` must find nothing left to change for the zone and for the
