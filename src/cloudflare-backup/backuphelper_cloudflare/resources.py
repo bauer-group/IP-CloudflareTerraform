@@ -73,6 +73,11 @@ DYNAMIC_ID_TYPES: frozenset[str] = frozenset({
     "cloudflare_zero_trust_tunnel_cloudflared_config",
 })
 
+# Types cf-terraforming 0.27 still lists with its legacy client (cloudflare-go
+# v0), also for provider v5. That client ignores CLOUDFLARE_BASE_URL - see
+# CloudflareConfig.legacy_api_hostname for how it follows a custom api_base.
+LEGACY_CLIENT_TYPES: frozenset[str] = frozenset({"cloudflare_ruleset"})
+
 # The stable set used to classify scope when enumerating the provider schema.
 # Anything NOT in here is treated as zone-scoped; a misclassified new
 # account-only resource simply errors under -z and is skipped (safe).

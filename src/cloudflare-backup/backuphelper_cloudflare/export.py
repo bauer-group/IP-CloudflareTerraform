@@ -39,6 +39,7 @@ from .resources import (
     DEFAULT_DENY_TYPES,
     DUAL_SCOPE_TYPES,
     DYNAMIC_ID_TYPES,
+    LEGACY_CLIENT_TYPES,
     RESOURCE_ID_DEFAULTS,
     SECRET_BEARING_TYPES,
     ZONE_RESOURCE_TYPES,
@@ -222,6 +223,15 @@ def export(
             if schema_types and resource_type not in schema_types:
                 result.skipped_unknown.append(resource_type)
                 log.info("skip %s: not in provider schema", resource_type)
+                return False
+            # Never let the legacy client fall back to the real API: it would
+            # send this token (meant for api_base) to api.cloudflare.com.
+            if resource_type in LEGACY_CLIENT_TYPES and not cfg.legacy_client_follows_api_base:
+                result.errors.append(
+                    f"{resource_type} ({scope}={scope_id}) not exported: cf-terraforming lists "
+                    f"it with its legacy client, which only reaches an https api_base ending "
+                    f"in /client/v4 (api_base is {cfg.api_base})")
+                log.error("%s", result.errors[-1])
                 return False
             # Types that cannot be swept (e.g. cloudflare_zone_setting) need
             # explicit ids: config override, else static defaults, else the

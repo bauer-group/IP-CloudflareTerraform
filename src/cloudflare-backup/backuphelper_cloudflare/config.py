@@ -19,6 +19,10 @@ DEFAULT_PROVIDER_VERSION = ">= 5.8.2, < 6.0.0"
 # Provider v5 uses write-only attributes that require Terraform/OpenTofu >= 1.11.
 DEFAULT_REQUIRED_VERSION = ">= 1.11"
 DEFAULT_API_BASE = "https://api.cloudflare.com/client/v4"
+# cf-terraforming's legacy client (cloudflare-go v0) ignores CLOUDFLARE_BASE_URL;
+# its only switch is CLOUDFLARE_API_HOSTNAME, from which it builds
+# "https://" + hostname + "/client/v4" - always https, always this path.
+_LEGACY_API_PATH = "/client/v4"
 
 
 class ConfigError(ValueError):
@@ -75,8 +79,10 @@ class CloudflareConfig:
     tofu_binary: str = "tofu"
     cfterraforming_binary: str = "cf-terraforming"
     # Cloudflare API v4 base URL. Besides the zone discovery it is handed to
-    # cf-terraforming and the OpenTofu provider (see ``api_env``), so all three
-    # talk to the same endpoint - the real API by default, a mock API in tests.
+    # cf-terraforming and the OpenTofu provider (see ``api_env``), so all of
+    # them talk to the same endpoint - the real API by default, a mock API in
+    # tests. cf-terraforming's legacy client needs it to be https and to end in
+    # /client/v4 (``legacy_api_hostname``).
     api_base: str = DEFAULT_API_BASE
 
     # Behaviour.
@@ -96,15 +102,38 @@ class CloudflareConfig:
             return self.tofu_binary
         return shutil.which(self.tofu_binary) or self.tofu_binary
 
+    def legacy_api_hostname(self) -> Optional[str]:
+        """``CLOUDFLARE_API_HOSTNAME`` for cf-terraforming's legacy client, or
+        None when that client cannot reach ``api_base``.
+
+        The legacy client (cloudflare-go v0, which cf-terraforming 0.27 still
+        uses to list ``cloudflare_ruleset``) ignores ``CLOUDFLARE_BASE_URL`` and
+        calls ``"https://" + hostname + "/client/v4"``. So only an https
+        ``api_base`` whose path ends in ``/client/v4`` can be expressed; the
+        hostname keeps the port and any path prefix in front of it."""
+        parsed = urlsplit(self.api_base)
+        if parsed.scheme != "https" or not parsed.path.endswith(_LEGACY_API_PATH):
+            return None
+        return parsed.netloc + parsed.path[: -len(_LEGACY_API_PATH)]
+
+    @property
+    def legacy_client_follows_api_base(self) -> bool:
+        """True when every client of cf-terraforming talks to ``api_base``."""
+        return self.api_base == DEFAULT_API_BASE or self.legacy_api_hostname() is not None
+
     def api_env(self) -> dict[str, str]:
         """Environment that points cf-terraforming and the OpenTofu provider at
         ``api_base``. Both read ``CLOUDFLARE_BASE_URL`` (cloudflare-go v4+);
-        cf-terraforming's legacy client, which it still uses for
-        ``cloudflare_ruleset``, does not. Empty for the default endpoint, so a
-        stock deployment's environment stays exactly as it was."""
+        cf-terraforming's legacy client reads ``CLOUDFLARE_API_HOSTNAME``
+        instead (see ``legacy_api_hostname``). Empty for the default endpoint,
+        so a stock deployment's environment stays exactly as it was."""
         if self.api_base == DEFAULT_API_BASE:
             return {}
-        return {"CLOUDFLARE_BASE_URL": self.api_base}
+        env = {"CLOUDFLARE_BASE_URL": self.api_base}
+        hostname = self.legacy_api_hostname()
+        if hostname:
+            env["CLOUDFLARE_API_HOSTNAME"] = hostname
+        return env
 
     def resolve_token(self, env: Optional[Mapping[str, str]] = None) -> str:
         """The API token, preferring the container env over the spec."""

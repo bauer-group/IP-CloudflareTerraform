@@ -108,3 +108,35 @@ def test_api_base_default_with_trailing_slash_is_default():
 def test_api_base_must_be_http_url(bad):
     with pytest.raises(ConfigError):
         CloudflareConfig.from_spec({"type": "cloudflare", "api_base": bad})
+
+
+def test_https_api_base_also_routes_the_legacy_client():
+    # cf-terraforming's legacy client (cloudflare_ruleset) ignores
+    # CLOUDFLARE_BASE_URL and builds https://<CLOUDFLARE_API_HOSTNAME>/client/v4.
+    cfg = CloudflareConfig.from_spec({"type": "cloudflare",
+                                      "api_base": "https://cf-mock:8443/client/v4"})
+    assert cfg.legacy_api_hostname() == "cf-mock:8443"
+    assert cfg.legacy_client_follows_api_base is True
+    assert cfg.api_env() == {"CLOUDFLARE_BASE_URL": "https://cf-mock:8443/client/v4",
+                             "CLOUDFLARE_API_HOSTNAME": "cf-mock:8443"}
+
+
+def test_legacy_hostname_keeps_a_path_prefix():
+    cfg = CloudflareConfig.from_spec({"type": "cloudflare",
+                                      "api_base": "https://gw.example/cloudflare/client/v4"})
+    assert cfg.legacy_api_hostname() == "gw.example/cloudflare"
+
+
+@pytest.mark.parametrize("api_base", ["http://cf-mock:8080/client/v4",
+                                      "https://cf-mock:8443/api"])
+def test_legacy_client_cannot_follow_http_or_other_paths(api_base):
+    cfg = CloudflareConfig.from_spec({"type": "cloudflare", "api_base": api_base})
+    assert cfg.legacy_api_hostname() is None
+    assert cfg.legacy_client_follows_api_base is False
+    assert "CLOUDFLARE_API_HOSTNAME" not in cfg.api_env()
+
+
+def test_default_api_base_needs_no_legacy_hostname():
+    cfg = CloudflareConfig.from_spec({"type": "cloudflare"})
+    assert cfg.legacy_client_follows_api_base is True
+    assert cfg.api_env() == {}

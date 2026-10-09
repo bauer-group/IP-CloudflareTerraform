@@ -269,3 +269,42 @@ def test_default_api_base_leaves_the_environment_alone(tmp_path):
     generate_envs = [e for e in cf_envs if "CLOUDFLARE_API_TOKEN" in e]
     assert generate_envs
     assert all("CLOUDFLARE_BASE_URL" not in e for e in generate_envs)
+
+
+def test_https_api_base_routes_the_legacy_client(tmp_path):
+    cfg = _cfg(resource_types="cloudflare_ruleset", resource_scope="zone",
+               api_base="https://cf-mock:8443/client/v4")
+    cf_envs: list = []
+    record: list = []
+    result = export(
+        cfg, tmp_path / "out", env=ENV,
+        run_tofu=make_tofu_run({"cloudflare_ruleset"}),
+        run_cf=_recording(make_cf_run({"cloudflare_ruleset": "resource x {}"}, record=record),
+                          cf_envs),
+        fetch=make_fetch([zone_page([("z1", "a.com", "acct1")])]), sleep=lambda s: None)
+    assert result.errors == []
+    assert any(a[1] == "generate" for a in record if len(a) > 1)
+    generate_envs = [e for e in cf_envs if "CLOUDFLARE_API_TOKEN" in e]
+    assert generate_envs
+    for env in generate_envs:
+        assert env["CLOUDFLARE_BASE_URL"] == "https://cf-mock:8443/client/v4"
+        assert env["CLOUDFLARE_API_HOSTNAME"] == "cf-mock:8443"
+
+
+def test_legacy_client_type_is_not_sent_to_the_real_api(tmp_path):
+    # An http api_base cannot be expressed for the legacy client, which would
+    # fall back to api.cloudflare.com with this token: the type is refused.
+    cfg = _cfg(resource_types="cloudflare_dns_record,cloudflare_ruleset",
+               resource_scope="zone", api_base="http://cf-mock:8080/client/v4")
+    record: list = []
+    result = export(
+        cfg, tmp_path / "out", env=ENV,
+        run_tofu=make_tofu_run({"cloudflare_dns_record", "cloudflare_ruleset"}),
+        run_cf=make_cf_run({"cloudflare_dns_record": "resource x {}",
+                            "cloudflare_ruleset": "resource y {}"}, record=record),
+        fetch=make_fetch([zone_page([("z1", "a.com", "acct1")])]), sleep=lambda s: None)
+    types_called = {a[a.index("--resource-type") + 1] for a in record if "--resource-type" in a}
+    assert types_called == {"cloudflare_dns_record"}
+    assert len(result.errors) == 1
+    assert "cloudflare_ruleset (zone=z1) not exported" in result.errors[0]
+    assert (tmp_path / "out" / "zones" / "a.com" / "cloudflare_dns_record.tf").exists()
