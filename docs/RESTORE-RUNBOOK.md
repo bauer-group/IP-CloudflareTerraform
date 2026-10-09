@@ -80,7 +80,9 @@ the plan and approve it only if those objects are really gone.
 This drift-correction path (`--zone <z> --force`) runs on every release against
 a mock Cloudflare API — DNS records, a ruleset and a zone setting are restored,
 then `--plan-only` must find nothing left to change for the zone and for the
-account; see [BACKUP.md](BACKUP.md#round-trip-test-in-ci).
+account. A second run restores a snapshot of the previous release with the
+upgraded image, on an emptied data volume, so `apply` pulls it from S3 first;
+see [BACKUP.md](BACKUP.md#round-trip-test-in-ci).
 
 ## MANDATORY: re-inject non-round-tripping secrets
 

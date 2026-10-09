@@ -84,8 +84,9 @@ Cloudflare API ──▶  │  cloudflare source  ──▶  cf-terraforming gen
   API over TLS, with the curated default resource types at zone and account
   scope: seed a DNS record, a ruleset rule and a zone setting, back up, change
   them, `cloudflare apply`, check that they are back and that the zone and the
-  account plan without changes
-  ([docs/BACKUP.md](docs/BACKUP.md#round-trip-test-in-ci)).
+  account plan without changes. A second run does the same as an upgrade
+  from the latest release and restores the old snapshot from S3 on a new
+  host ([docs/BACKUP.md](docs/BACKUP.md#round-trip-test-in-ci)).
 
 ## Documentation
 

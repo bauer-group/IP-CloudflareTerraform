@@ -223,14 +223,20 @@ docker compose run --rm cf-backup show <id>     # manifest (counts, versions)
 ## Round-Trip Test in CI
 
 Every release is gated on a real backup and restore — against a mock of the
-Cloudflare API, because a CI runner has no Cloudflare account. The job
-`🧪 Backup Round Trip` in [docker-release.yml](../.github/workflows/docker-release.yml)
-calls the reusable
+Cloudflare API, because a CI runner has no Cloudflare account. Two jobs in
+[docker-release.yml](../.github/workflows/docker-release.yml) call the reusable
 [`modules-backup-roundtrip-test.yml`](https://github.com/bauer-group/automation-templates/blob/main/docs/workflows/modules-backup-roundtrip-test.md)
-and runs before the release job, which needs it to pass. It also runs when the
-base image monitor dispatches a release after a new BackupHelper engine image, so
-an engine update ships only after it backed up and restored Cloudflare
-configuration.
+and run in parallel before the release job, which needs **both** to pass:
+
+| Job | Starts from | Restores from |
+| --- | --- | --- |
+| `🧪 Backup Round Trip` | a fresh installation: the `cf-backup` image built from the commit | the snapshot in the sidecar's data volume |
+| `🧪 Backup Round Trip (upgrade, S3)` | the latest release's `cf-backup` image, upgraded to the build of the commit after the backup | the off-site copy in S3, on a "new host" — see [Upgrade and new host](#upgrade-and-new-host) |
+
+Both also run when the base image monitor dispatches a release after a new
+BackupHelper engine image, so an engine update ships only after it backed up
+and restored Cloudflare configuration — and restored a snapshot the previous
+release wrote.
 
 The export runs with the plugin's **curated default resource types at zone and
 account scope** (`CLOUDFLARE_RESOURCE_DISCOVERY=curated`,
@@ -320,13 +326,39 @@ same diff code). The mock follows the shape of the real responses for these
 endpoints, not every rule of the real API (for example, it does not validate
 DNS record contents or ruleset expressions).
 
-A run takes about 4 minutes. It starts on pushes to `main` (documentation-only
-pushes excluded), on every `workflow_dispatch`, and on pull requests that touch
-`src/`, a compose file, `.env.example`, `tests/backup-roundtrip/` or the release
-workflow. When it fails, the step summary names the failed phase, and the
-`backup-roundtrip-diagnostics` artifact holds the logs of `cf-backup` and
-`cf-mock` (one line per request), `docker compose ps`, the snapshot list and
-the output of `create` and of the restore.
+### Upgrade and new host
+
+The second job runs the same stack, seed, tamper, restore and checks, with
+two differences that follow the way production gets there
+(`upgrade-from: latest-release` and `s3-destination: true` of the module):
+
+| Phase | What happens |
+| --- | --- |
+| Previous release | The `cf-backup` image of the newest GitHub release (tag `vX.Y.Z` → image tag `X.Y.Z`) is pulled and started in place of the build; the module checks that the container runs it. It seeds and takes the snapshot |
+| Off-site copy | The module starts a throwaway MinIO and writes its endpoint, bucket and generated credentials into `BACKUP_S3_ENDPOINT`, `BACKUP_S3_BUCKET`, `BACKUP_S3_ACCESS_KEY`, `BACKUP_S3_SECRET_KEY` and `BACKUP_S3_FORCE_PATH_STYLE`. After `verify`, archive and manifest must be in the bucket with the local size |
+| Upgrade | `cf-backup` switches to the image built from the commit (`docker compose up -d`, as an operator does after a pull); `cf-mock` keeps running with its state. The check must still see the seeded data — the `--plan-only` runs of the zone and the account from the old snapshot included — and `backuphelper healthcheck` must pass with the previous release's snapshot and run records |
+| New host | After the tamper the `cf-backup` container is removed and its `/data` volume emptied; `list` must show the snapshot as off-site only |
+| Restore | `cloudflare apply <id> --zone charlie.example --force` with the new sidecar: the plugin pulls the old snapshot back from S3 before it plans; afterwards the snapshot must be local again and pass `verify`, and the check runs as in the fresh job |
+
+The previous release starts from the compose files of the commit. Should a
+release change them in a way the previous image cannot run with, the job needs
+an `upgrade-from-compose-files` override or an `upgrade-script` (see the
+[module documentation](https://github.com/bauer-group/automation-templates/blob/main/docs/workflows/modules-backup-roundtrip-test.md#upgrade-from-a-previous-release)).
+A release exists a few minutes before its image is pushed: a run that starts
+in that window, or after a release whose image job failed, fails at *Pull
+previous release*. Re-run the job once the image is published (re-run the
+failed image job first if needed).
+
+### Runs and diagnostics
+
+The fresh job takes about 4 minutes; the upgrade job runs in parallel with it.
+Both start on pushes to `main` (documentation-only pushes excluded), on every
+`workflow_dispatch`, and on pull requests that touch `src/`, a compose file,
+`.env.example`, `tests/backup-roundtrip/` or the release workflow. When one
+fails, the step summary names the failed phase, and its artifact
+(`backup-roundtrip-diagnostics` or `backup-roundtrip-upgrade-diagnostics`) holds
+the logs of `cf-backup` and `cf-mock` (one line per request), `docker compose
+ps`, the snapshot list and the output of `create` and of the restore.
 
 Outside CI, run `bash tests/backup-roundtrip/prepare.sh` before starting the
 stack with the override: without the TLS material `cf-mock` exits at once.
