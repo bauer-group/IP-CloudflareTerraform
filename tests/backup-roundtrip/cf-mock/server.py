@@ -801,6 +801,8 @@ _collection("load_balancer_monitors", "load_balancer_monitor",
 
 # Every other curated type: the endpoint cf-terraforming 0.27 lists it with,
 # empty. (name, resource type, path below the zone or account, empty result).
+# /snippets is deliberately not modeled: the plugin denies cloudflare_snippets
+# by default, so a request for it fails the "modeled routes" check.
 EMPTY_ZONE_ROUTES = (
     ("page_rules", "cloudflare_page_rule", "/pagerules", []),
     ("filters", "cloudflare_filter", "/filters", []),
@@ -808,7 +810,6 @@ EMPTY_ZONE_ROUTES = (
     ("certificate_packs", "cloudflare_certificate_pack", "/ssl/certificate_packs", []),
     ("spectrum_apps", "cloudflare_spectrum_application", "/spectrum/apps", []),
     ("workers_routes", "cloudflare_workers_route", "/workers/routes", []),
-    ("snippets", "cloudflare_snippets", "/snippets", []),
     ("snippet_rules", "cloudflare_snippet_rules", "/snippets/snippet_rules", []),
 )
 EMPTY_ACCOUNT_ROUTES = (

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from fakes import make_cf_run, make_fetch, make_tofu_run, proc, zone_page
 
 from backuphelper_cloudflare.config import CloudflareConfig
@@ -410,3 +412,30 @@ def test_empty_snippet_rules_wrapper_is_not_written(tmp_path):
     assert not (tmp_path / "out" / "zones" / "a.com").exists()
     assert not any(len(a) > 1 and a[1] == "import" for a in record)
     assert result.files_written == 0 and result.errors == []
+
+
+def _generated(record: list, resource_type: str) -> list[list[str]]:
+    return [a for a in record if len(a) > 3 and a[1] == "generate" and a[3] == resource_type]
+
+
+@pytest.mark.parametrize("over", [
+    {"resource_types": "", "account_resource_types": "", "resource_discovery": "curated"},
+    {"resource_types": "", "account_resource_types": "", "resource_discovery": "schema"},
+    {"resource_types": "cloudflare_snippets,cloudflare_snippet_rules", "resource_scope": "zone"},
+], ids=["curated", "schema", "explicit"])
+def test_nonfunctional_snippets_resource_is_never_exported(tmp_path, over):
+    # Provider 5.x's cloudflare_snippets fails every operation, so a restore
+    # including it fails; the snippet rules are exported as before.
+    cfg = _cfg(**over)
+    rtypes = {"cloudflare_snippets", "cloudflare_snippet_rules"}
+    hcl = {t: f'resource "{t}" "terraform_managed_resource_z1_0" {{\n  zone_id = "z1"\n}}\n'
+           for t in rtypes}
+    record: list = []
+    export(cfg, tmp_path / "out", env=ENV,
+           run_tofu=make_tofu_run(rtypes),
+           run_cf=make_cf_run(hcl, record=record),
+           fetch=make_fetch([zone_page([("z1", "a.com", "acct1")])]), sleep=lambda s: None)
+    assert not any("cloudflare_snippets" in a for a in record)
+    assert not (tmp_path / "out" / "zones" / "a.com" / "cloudflare_snippets.tf").exists()
+    assert _generated(record, "cloudflare_snippet_rules")
+    assert all("-z" in a for a in _generated(record, "cloudflare_snippet_rules"))

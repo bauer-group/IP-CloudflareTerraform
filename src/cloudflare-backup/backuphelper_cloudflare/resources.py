@@ -36,7 +36,7 @@ ZONE_RESOURCE_TYPES: tuple[str, ...] = (
     "cloudflare_bot_management",
     "cloudflare_spectrum_application",
     "cloudflare_workers_route",
-    "cloudflare_snippets",
+    # Not cloudflare_snippets: see DEFAULT_DENY_TYPES.
     "cloudflare_snippet_rules",
 )
 
@@ -147,8 +147,16 @@ RESOURCE_ID_DEFAULTS: dict[str, tuple[str, ...]] = {
 }
 
 # Types known to emit HCL that does not round-trip cleanly or is not worth
-# capturing by default. Merged with the per-deployment `deny_types`.
-DEFAULT_DENY_TYPES: frozenset[str] = frozenset()
+# capturing by default. Merged with the per-deployment `deny_types`; applies
+# to every discovery mode and to explicit `resource_types` alike.
+#
+# cloudflare_snippets: provider 5.x replaced it with cloudflare_snippet and
+# left a stub whose create, read, update and delete all fail ("use
+# 'cloudflare_snippet' instead"), so a restore that includes it fails. And
+# cf-terraforming 0.27 exports no snippet code (`files = []`) and no usable
+# import id (`<zone_id>/<zone_id>`: the API object has no `id`), and has no
+# endpoint for cloudflare_snippet. Snippet rules are exported.
+DEFAULT_DENY_TYPES: frozenset[str] = frozenset({"cloudflare_snippets"})
 
 # Resources whose secret payload the Cloudflare API never returns, so a plain
 # `apply` from a backup shows a spurious replace until the secret is re-supplied.

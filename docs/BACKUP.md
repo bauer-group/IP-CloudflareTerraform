@@ -56,12 +56,22 @@ add `CLOUDFLARE_RESOURCE_SCOPE=zone` to export only the listed types.
 > the bucket name into the API path (it requests a literal `{bucket_name}` and
 > gets a 400), regardless of `--resource-id`. They surface as benign skips.
 > Revisit when cf-terraforming adds support.
-
+>
 > **Curated types cf-terraforming 0.27.0 cannot export.** It has no provider-v5
 > endpoint for `cloudflare_workers_script`, so Worker scripts are never exported
 > (the call returns nothing, no skip is recorded). `cloudflare_workers_cron_trigger`
 > and `cloudflare_authenticated_origin_pulls` need ids (script names, host names)
 > the source does not supply; they end as benign skips.
+>
+> **Snippets are not exported (built-in deny list).** cf-terraforming 0.27.0
+> exports `cloudflare_snippets` without the snippet code (`files = []`) and
+> without a usable import id, and has no endpoint for its successor
+> `cloudflare_snippet`. Provider 5.x keeps `cloudflare_snippets` only as a stub
+> whose every operation fails ("use 'cloudflare_snippet' instead"), so a
+> restore that included it would fail. The source therefore never exports it,
+> in any discovery mode and even when it is listed in `resource_types`. Snippet
+> rules (`cloudflare_snippet_rules`) are exported; keep the snippet code itself
+> in version control.
 
 **Fixed up for restore.** Where cf-terraforming 0.27 and the provider disagree,
 the export adjusts the generated HCL so that `cloudflare apply` plans no change
@@ -111,7 +121,7 @@ The `cloudflare` source keys:
 | `zones` | `auto` | `auto` = all zones the token sees, or a list |
 | `resource_scope` | `all` | `all` \| `zone` \| `account` |
 | `resource_discovery` | `schema` | `schema` (max coverage) \| `curated` (fast) |
-| `resource_types` / `account_resource_types` / `deny_types` | — | overrides (`resource_types` = `CLOUDFLARE_RESOURCE_TYPES`) |
+| `resource_types` / `account_resource_types` / `deny_types` | — | overrides (`resource_types` = `CLOUDFLARE_RESOURCE_TYPES`); `deny_types` adds to the built-in deny list (`cloudflare_snippets`) |
 | `throttle_rps` | `4` | request/sec ceiling (global limit 1200 / 5 min) |
 | `api_base` | `https://api.cloudflare.com/client/v4` | API endpoint of the zone discovery, cf-terraforming and the OpenTofu provider (`CLOUDFLARE_API_BASE_URL`); keep the default — it exists for the [mock API round trip](#round-trip-test-in-ci). A custom endpoint must be https and end in `/client/v4`, or rulesets are not exported: cf-terraforming's legacy ruleset client only follows such an endpoint (as `CLOUDFLARE_API_HOSTNAME`) |
 | `provider_version` | `>= 5.8.2, < 6.0.0` | provider pin |
