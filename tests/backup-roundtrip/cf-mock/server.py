@@ -10,11 +10,12 @@ https - and the OpenTofu provider.
 
 Fixture (see Store): the account "Backup Round Trip" with two custom rulesets
 (a root entry point that executes a custom ruleset) and a managed one, three
-Workers KV namespaces, a Cloudflare Tunnel and its ingress configuration; three
-zones (alpha, bravo, charlie.example), each with DNS records, the 27 zone
-settings the plugin exports, bot management, URL normalization and managed
-transforms, each listing a managed ruleset; charlie.example also has a custom
-firewall ruleset. Every other curated type answers with an empty list. Ids are
+Workers KV namespaces, a Cloudflare Tunnel and its ingress configuration, a
+load balancer monitor and pool; three zones (alpha, bravo, charlie.example),
+each with DNS records, the 27 zone settings the plugin exports, bot
+management, URL normalization and managed transforms, each listing a managed
+ruleset; charlie.example also has a custom firewall ruleset and a load
+balancer. Every other curated type answers with an empty list. Ids are
 derived from names at runtime (sha256), so nothing id- or token-like is stored
 in the repository.
 
@@ -121,12 +122,15 @@ ZONE_TYPES_WITH_DATA = (
     "cloudflare_bot_management", "cloudflare_dns_record", "cloudflare_managed_transforms",
     "cloudflare_url_normalization_settings", "cloudflare_zone_setting",
 )
-MARKER_ZONE_TYPES_WITH_DATA = ("cloudflare_ruleset",)
+MARKER_ZONE_TYPES_WITH_DATA = ("cloudflare_load_balancer", "cloudflare_ruleset")
 ACCOUNT_TYPES_WITH_DATA = (
+    "cloudflare_load_balancer_monitor", "cloudflare_load_balancer_pool",
     "cloudflare_ruleset", "cloudflare_workers_kv_namespace",
     "cloudflare_zero_trust_tunnel_cloudflared",
     "cloudflare_zero_trust_tunnel_cloudflared_config",
 )
+# Fields the API computes; a write never sets them.
+COMPUTED_FIELDS = {"id", "created_on", "modified_on", "zone_name", "networks"}
 
 # Fields a client may set on a DNS record (PUT/PATCH); the rest is computed.
 RECORD_FIELDS = ("name", "type", "content", "ttl", "proxied", "comment", "tags",
@@ -260,6 +264,45 @@ class Store:
                 {"service": "http_status:404"},
             ]},
         }}
+        # Load balancing: monitor and pool belong to the account, the load
+        # balancer that uses them to charlie.example.
+        monitor = {
+            "id": ident("monitor", "origin health"), "created_on": created,
+            "modified_on": created, "type": "https", "method": "GET", "path": "/health",
+            "expected_codes": "200", "expected_body": "", "description": "Origin health",
+            "interval": 60, "retries": 2, "timeout": 5, "port": 0, "follow_redirects": False,
+            "allow_insecure": False, "probe_zone": "", "header": {},
+            "consecutive_up": 0, "consecutive_down": 0,
+        }
+        pool = {
+            "id": ident("pool", "charlie-origins"), "created_on": created,
+            "modified_on": created, "name": "charlie-origins", "description": "",
+            "enabled": True, "minimum_origins": 1, "monitor": monitor["id"],
+            "check_regions": None, "networks": ["cloudflare"], "notification_email": "",
+            "origins": [
+                {"name": "origin-1", "address": "192.0.2.10", "enabled": True, "weight": 1,
+                 "header": {"host": ["charlie.example"]}},
+                {"name": "origin-2", "address": "192.0.2.11", "enabled": True, "weight": 0.5},
+            ],
+        }
+        balancer = {
+            "id": ident("load_balancer", "lb.charlie.example"), "created_on": created,
+            "modified_on": created, "name": "lb.charlie.example", "description": "",
+            "enabled": True, "proxied": False, "ttl": 30, "default_pools": [pool["id"]],
+            "fallback_pool": pool["id"], "steering_policy": "off", "session_affinity": "none",
+            "session_affinity_attributes": {"drain_duration": 0, "samesite": "Auto",
+                                            "secure": "Auto", "zero_downtime_failover": "none"},
+            "adaptive_routing": {"failover_across_pools": False},
+            "location_strategy": {"mode": "pop", "prefer_ecs": "proximity"},
+            "random_steering": {"default_weight": 1}, "pop_pools": {}, "region_pools": {},
+            "networks": ["cloudflare"], "zone_name": MARKER_ZONE,
+        }
+        # Generic collections: (name, zone or account id) -> objects with an "id".
+        self.collections: dict[tuple[str, str], list[dict]] = {
+            ("load_balancer_monitors", acct): [monitor],
+            ("load_balancer_pools", acct): [pool],
+            ("load_balancers", marker_zone): [balancer],
+        }
         self.journal: list[dict] = []
         # What the tamper changed: key -> journal seq at the tamper.
         self.tampered: dict[str, int] = {}
@@ -678,12 +721,54 @@ def h_tunnel_config(req: Request, store: Store, account: str, tunnel: str) -> di
     return ok(copy.deepcopy(current))
 
 
+def _collection(name: str, item: str, resource_type: str, prefix: str, suffix: str) -> None:
+    """A list route and an item route (GET, PUT, PATCH) over
+    ``Store.collections[(name, zone or account id)]``."""
+
+    def scope_id(req: Request, store: Store, scope: dict) -> str:
+        if "zone" in scope:
+            store.zone_by_id(scope["zone"], req.path)
+            return scope["zone"]
+        store.check_account(scope["account"], req.path)
+        return scope["account"]
+
+    @route(name, prefix + re.escape(suffix), resource_type)
+    def list_handler(req: Request, store: Store, **scope: str) -> dict:
+        req.allow("GET")
+        return listing(store.collections.get((name, scope_id(req, store, scope)), []), req.query)
+
+    @route(item, prefix + re.escape(suffix) + r"/(?P<item_id>[0-9a-f]{32})")
+    def item_handler(req: Request, store: Store, item_id: str, **scope: str) -> dict:
+        req.allow("GET", "PUT", "PATCH")
+        objects = store.collections.get((name, scope_id(req, store, scope)), [])
+        current = next((o for o in objects if o["id"] == item_id), None)
+        if current is None:
+            raise ApiError(404, 1002, f"{item} not found")
+        if req.method != "GET":
+            body = req.json_object()
+            before = semantic(current)
+            if req.method == "PUT":
+                for key in [k for k in current if k not in COMPUTED_FIELDS]:
+                    current.pop(key)
+            current.update({k: v for k, v in body.items() if k not in COMPUTED_FIELDS})
+            current["modified_on"] = now()
+            req.changed = semantic(current) != before
+        return ok(copy.deepcopy(current))
+
+
+_collection("load_balancers", "load_balancer", "cloudflare_load_balancer", ZONE,
+            "/load_balancers")
+_collection("load_balancer_pools", "load_balancer_pool", "cloudflare_load_balancer_pool",
+            ACCOUNT, "/load_balancers/pools")
+_collection("load_balancer_monitors", "load_balancer_monitor",
+            "cloudflare_load_balancer_monitor", ACCOUNT, "/load_balancers/monitors")
+
+
 # Every other curated type: the endpoint cf-terraforming 0.27 lists it with,
 # empty. (name, resource type, path below the zone or account, empty result).
 EMPTY_ZONE_ROUTES = (
     ("page_rules", "cloudflare_page_rule", "/pagerules", []),
     ("filters", "cloudflare_filter", "/filters", []),
-    ("load_balancers", "cloudflare_load_balancer", "/load_balancers", []),
     ("custom_hostnames", "cloudflare_custom_hostname", "/custom_hostnames", []),
     ("certificate_packs", "cloudflare_certificate_pack", "/ssl/certificate_packs", []),
     ("spectrum_apps", "cloudflare_spectrum_application", "/spectrum/apps", []),
@@ -708,9 +793,6 @@ EMPTY_ACCOUNT_ROUTES = (
     ("virtual_networks", "cloudflare_zero_trust_tunnel_cloudflared_virtual_network",
      "/teamnet/virtual_networks", []),
     ("gateway_rules", "cloudflare_zero_trust_gateway_policy", "/gateway/rules", []),
-    ("load_balancer_pools", "cloudflare_load_balancer_pool", "/load_balancers/pools", []),
-    ("load_balancer_monitors", "cloudflare_load_balancer_monitor",
-     "/load_balancers/monitors", []),
     ("web_analytics_sites", "cloudflare_web_analytics_site", "/rum/site_info/list", []),
 )
 
