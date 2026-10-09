@@ -71,12 +71,24 @@ nobody made — without changing what a restore applies:
   rulesets the two differ: the API lists managed rulesets, which are not
   generated, and generate sorts by phase. Import blocks without a resource are
   dropped and listed under `skipped` in `EXPORT_MANIFEST.json`.
-- Tunnel ingress configurations get their import id (`<account_id>/<tunnel_id>`)
-  from the generated resource; cf-terraforming's own id names the account twice.
+- Objects the API lists without an `id` get the scope id from cf-terraforming,
+  i.e. the import id `<account_id>/<account_id>`, which fails the plan of the
+  whole scope. Tunnel ingress configurations (`<account_id>/<tunnel_id>`) and
+  R2 buckets (`<account_id>/<name>/<jurisdiction>`) get a correct id built from
+  the generated resource. For Turnstile widgets, queues and Web Analytics
+  sites the identifying attribute is not in the HCL: their import blocks are
+  dropped and the export records an **error** — the snapshot holds their
+  definitions, but a restore would create them instead of importing them.
+- Keys the API spells differently from the provider are renamed — OpenTofu
+  silently drops unknown keys, so a restore would remove those settings:
+  the `Host` header of load balancer pool origins (`host`) and the camelCase
+  `originRequest` settings of tunnel ingress configurations (`origin_request`,
+  `no_tls_verify`, `http_host_header`, …).
 - Managed transforms keep only the enabled entries: the provider imports only
   those and disables every other enabled transform on apply.
-- A zone's snippet rules resource without rules is dropped: cf-terraforming
-  creates one for every zone, and the provider imports it without its rules.
+- Empty values the provider imports as null are dropped: a zone's snippet
+  rules resource without rules (cf-terraforming creates one for every zone)
+  and a load balancer monitor's `header = {}`.
 
 **Zone settings** (`cloudflare_zone_setting`) can't be swept — cf-terraforming
 needs each setting named. The source exports a curated default set of common,
@@ -229,9 +241,9 @@ answered and whether a write changed anything.
 
 | Scope | Resources with data |
 | --- | --- |
-| Account | `cloudflare_ruleset` (a root entry point that executes a custom ruleset, plus a listed managed ruleset), three `cloudflare_workers_kv_namespace` (two pages), a `cloudflare_zero_trust_tunnel_cloudflared` and its `_config` |
+| Account | `cloudflare_ruleset` (a root entry point that executes a custom ruleset, plus a listed managed ruleset), three `cloudflare_workers_kv_namespace` (two pages), a `cloudflare_zero_trust_tunnel_cloudflared` and its `_config` with `originRequest` settings, a `cloudflare_load_balancer_monitor` and `_pool` (origin with a `Host` header), a `cloudflare_r2_bucket` |
 | Every zone | DNS records, the 27 default `cloudflare_zone_setting` ids, `cloudflare_bot_management`, `cloudflare_url_normalization_settings`, `cloudflare_managed_transforms`, a listed managed ruleset |
-| `charlie.example` | its custom firewall ruleset (zone entry point) |
+| `charlie.example` | its custom firewall ruleset (zone entry point), a `cloudflare_load_balancer` on the account's pool |
 
 Every other curated type answers with an empty list; a request to anything else
 is a 404 that fails the check. Ids are derived at runtime and the token is
@@ -268,7 +280,7 @@ The check ([`check.sh`](../tests/backup-roundtrip/check.sh), assertions in
 after the tamper (tampered values present, nothing written) and after the
 restore (marker data back). Each time every API request of the image must carry
 the token and hit a route the mock models. Once the snapshot exists, its export
-must cover the three zones and the account, hold exactly the expected 25 `.tf`
+must cover the three zones and the account, hold exactly the expected 29 `.tf`
 files and record no export error. In addition:
 
 - **After the tamper**: `cloudflare drift --against <id> --zone charlie.example`
@@ -282,7 +294,7 @@ files and record no export error. In addition:
   have written the three seeded values back and changed nothing else (no-op
   writes are listed), every write must have succeeded. Finally
   `cloudflare apply <id> --plan-only` must import every resource and plan no
-  change, for `charlie.example` (34 imports) and for the account (7 imports).
+  change, for `charlie.example` (35 imports) and for the account (10 imports).
 
 The restore step is `cloudflare apply`, the command an operator runs: the
 engine's own `restore` does not handle the `cloudflare` component (see
@@ -291,9 +303,9 @@ of deleting them, because `apply` reconciles existing resources through the
 snapshot's import blocks; deleted ones need `--dr`.
 
 **Not covered.** Schema discovery; the account scope is planned, not applied;
-`--dr`; curated types the mock serves as empty lists (page rules, load
-balancers, lists, Access, Gateway, R2, queues, …) are only asked for, their
-HCL is not exercised; `cloudflare diff` between two snapshots (drift uses the
+`--dr`; curated types the mock serves as empty lists (page rules, lists,
+Access, Gateway, Turnstile, queues, …) are only asked for, their HCL is not
+exercised; `cloudflare diff` between two snapshots (drift uses the
 same diff code). The mock follows the shape of the real responses for these
 endpoints, not every rule of the real API (for example, it does not validate
 DNS record contents or ruleset expressions).
