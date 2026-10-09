@@ -1,8 +1,9 @@
 # =============================================================================
 # Release & Docker Build
 # =============================================================================
-# Single pipeline (mirrors the CS-* fleet): validate → semantic-release → build
-# & push the cloudflare-backup image to GHCR → sync the Dockerfile version.
+# Single pipeline (mirrors the CS-* fleet): validate → backup round trip →
+# semantic-release → build & push the cloudflare-backup image to GHCR → sync
+# the Dockerfile version.
 # Replaces a standalone semantic-release workflow so there is exactly one release
 # path on main.
 # =============================================================================
@@ -23,6 +24,8 @@ on:
       - 'docker-compose*.yml'
       - '.dockerignore'
       - '.env.example'
+      - 'tests/backup-roundtrip/**'
+      - '.github/workflows/docker-release.yml'
   workflow_dispatch:
     inputs:
       force-release:
@@ -60,15 +63,58 @@ jobs:
       severity: 'error'
 
   # ============================================
+  # Backup round trip (gates every release)
+  # ============================================
+  # Builds cloudflare-backup from this commit and runs it against a mock of the
+  # Cloudflare API (tests/backup-roundtrip/docker-compose.ci.yml): seeds a TXT
+  # record on the second page of the third zone, backs up, changes the record
+  # behind the backup's back, restores the zone with `cloudflare apply --force`
+  # and checks that the record is back. The mock's request journal must also
+  # show the token on every request, both lists paginated, no write by the
+  # backup and no restore write but the one to that record. Every release
+  # rebuilds the image FROM the newest BackupHelper engine - also the one the
+  # base image monitor dispatches - so this runs on every push, dispatch and
+  # relevant PR. Docs-only pushes never reach it (paths-ignore).
+  backup-roundtrip:
+    name: 🧪 Backup Round Trip
+    needs: [validate-compose, validate-scripts]
+    permissions:
+      contents: read
+      packages: read
+    uses: bauer-group/automation-templates/.github/workflows/modules-backup-roundtrip-test.yml@main
+    with:
+      compose-files: '["docker-compose.yml", "tests/backup-roundtrip/docker-compose.ci.yml"]'
+      # The mock serves DNS records only, so the export is limited to them. A
+      # generated token is the only one the mock accepts.
+      env-overrides: |
+        STACK_NAME=cloudflare_roundtrip
+        CLOUDFLARE_API_BASE_URL=http://cf-mock:8080/client/v4
+        CLOUDFLARE_RESOURCE_SCOPE=zone
+        CLOUDFLARE_RESOURCE_TYPES=cloudflare_dns_record
+      generated-secrets: 'CLOUDFLARE_API_TOKEN'
+      build-images: '[{"service": "cf-backup", "context": "src/cloudflare-backup"}]'
+      backup-service: 'cf-backup'
+      require-components: 'cloudflare'
+      # The engine's own restore does not push to Cloudflare; the plugin's
+      # plan-gated apply does (--force: no terminal for the approval).
+      restore-command: 'cloudflare apply'
+      restore-args: '--zone charlie.example --force'
+      seed-script: 'tests/backup-roundtrip/seed.sh'
+      mutate-script: 'tests/backup-roundtrip/mutate.sh'
+      check-script: 'tests/backup-roundtrip/check.sh'
+    secrets: inherit
+
+  # ============================================
   # Release (only on main push / dispatch)
   # ============================================
   release:
     name: 📦 Create Semantic Release
-    needs: [validate-compose, validate-scripts]
+    needs: [validate-compose, validate-scripts, backup-roundtrip]
     if: |
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
       needs.validate-compose.result == 'success' &&
-      needs.validate-scripts.result == 'success'
+      needs.validate-scripts.result == 'success' &&
+      needs.backup-roundtrip.result == 'success'
     uses: bauer-group/automation-templates/.github/workflows/modules-semantic-release.yml@main
     with:
       target-branch: 'main'
