@@ -230,3 +230,42 @@ def test_zone_selection_filters(tmp_path):
     out = tmp_path / "out"
     assert (out / "zones" / "a.com" / "cloudflare_dns_record.tf").exists()
     assert not (out / "zones" / "b.org").exists()
+
+
+def _recording(run, envs):
+    def wrapper(argv, **kwargs):
+        envs.append(kwargs.get("env") or {})
+        return run(argv, **kwargs)
+    return wrapper
+
+
+def test_custom_api_base_reaches_discovery_and_cf_terraforming(tmp_path):
+    cfg = _cfg(resource_types="cloudflare_dns_record", account_resource_types="",
+               api_base="http://cf-mock:8080/client/v4")
+    urls: list = []
+    zones = make_fetch([zone_page([("z1", "a.com", "acct1")])])
+    cf_envs: list = []
+    tofu_envs: list = []
+    export(cfg, tmp_path / "out", env=ENV,
+           run_tofu=_recording(make_tofu_run({"cloudflare_dns_record"}), tofu_envs),
+           run_cf=_recording(make_cf_run({"cloudflare_dns_record": "resource x {}"}), cf_envs),
+           fetch=lambda url, token: urls.append(url) or zones(url, token),
+           sleep=lambda s: None)
+    assert urls and all(u.startswith("http://cf-mock:8080/client/v4/zones?") for u in urls)
+    generate_envs = [e for e in cf_envs if "CLOUDFLARE_API_TOKEN" in e]
+    assert generate_envs, "cf-terraforming should have been invoked"
+    for env in generate_envs + [e for e in tofu_envs if e]:
+        assert env["CLOUDFLARE_BASE_URL"] == "http://cf-mock:8080/client/v4"
+
+
+def test_default_api_base_leaves_the_environment_alone(tmp_path):
+    cfg = _cfg(resource_types="cloudflare_dns_record", account_resource_types="")
+    cf_envs: list = []
+    export(cfg, tmp_path / "out", env=ENV,
+           run_tofu=make_tofu_run({"cloudflare_dns_record"}),
+           run_cf=_recording(make_cf_run({"cloudflare_dns_record": "resource x {}"}), cf_envs),
+           fetch=make_fetch([zone_page([("z1", "a.com", "acct1")])]),
+           sleep=lambda s: None)
+    generate_envs = [e for e in cf_envs if "CLOUDFLARE_API_TOKEN" in e]
+    assert generate_envs
+    assert all("CLOUDFLARE_BASE_URL" not in e for e in generate_envs)

@@ -125,7 +125,8 @@ def apply_export(
     token = cfg.resolve_token(env)
     proc_env = dict(env if env is not None else {})
     import os as _os
-    proc_env = {**_os.environ, **proc_env, "CLOUDFLARE_API_TOKEN": token}
+    # The provider writes to the endpoint the snapshot was exported from.
+    proc_env = {**_os.environ, **proc_env, "CLOUDFLARE_API_TOKEN": token, **cfg.api_env()}
 
     created_tmp = workdir is None
     tmp = tempfile.mkdtemp(prefix="cf-apply-") if created_tmp else None
