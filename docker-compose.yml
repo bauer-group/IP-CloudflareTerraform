@@ -40,7 +40,9 @@ services:
                "zones": "${CLOUDFLARE_ZONES:-auto}",
                "resource_scope": "${CLOUDFLARE_RESOURCE_SCOPE:-all}",
                "resource_discovery": "${CLOUDFLARE_RESOURCE_DISCOVERY:-schema}",
-               "throttle_rps": ${CLOUDFLARE_THROTTLE_RPS:-4}}
+               "resource_types": "${CLOUDFLARE_RESOURCE_TYPES:-}",
+               "throttle_rps": ${CLOUDFLARE_THROTTLE_RPS:-4},
+               "api_base": "${CLOUDFLARE_API_BASE_URL:-https://api.cloudflare.com/client/v4}"}
             ],
             "destinations": [
               {"type": "local"},

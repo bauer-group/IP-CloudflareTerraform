@@ -44,7 +44,10 @@ The `cloudflare` source enumerates **zones** via the Cloudflare API and runs
 
 Override per deployment in the source config:
 `resource_types`, `account_resource_types`, `deny_types`, and `resource_ids`
-(explicit ids for a parent-keyed type).
+(explicit ids for a parent-keyed type). `resource_types` is also exposed in
+`.env` as `CLOUDFLARE_RESOURCE_TYPES`: a comma list replaces the zone-level types
+of the discovery mode, while account-level types fall back to the curated list —
+add `CLOUDFLARE_RESOURCE_SCOPE=zone` to export only the listed types.
 
 > **Known cf-terraforming limitation — R2 bucket sub-configs.** The R2 buckets
 > themselves (`cloudflare_r2_bucket`) are backed up, but their sub-configurations
@@ -75,8 +78,9 @@ The `cloudflare` source keys:
 | `zones` | `auto` | `auto` = all zones the token sees, or a list |
 | `resource_scope` | `all` | `all` \| `zone` \| `account` |
 | `resource_discovery` | `schema` | `schema` (max coverage) \| `curated` (fast) |
-| `resource_types` / `account_resource_types` / `deny_types` | — | overrides |
+| `resource_types` / `account_resource_types` / `deny_types` | — | overrides (`resource_types` = `CLOUDFLARE_RESOURCE_TYPES`) |
 | `throttle_rps` | `4` | request/sec ceiling (global limit 1200 / 5 min) |
+| `api_base` | `https://api.cloudflare.com/client/v4` | API endpoint of the zone discovery, cf-terraforming and the OpenTofu provider (`CLOUDFLARE_API_BASE_URL`); keep the default — it exists for tests against a mock API |
 | `provider_version` | `>= 5.8.2, < 6.0.0` | provider pin |
 | `modern_import_block` | `true` | emit `import{}` blocks |
 
