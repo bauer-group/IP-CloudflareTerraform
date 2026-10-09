@@ -66,15 +66,20 @@ jobs:
   # Backup round trip (gates every release)
   # ============================================
   # Builds cloudflare-backup from this commit and runs it against a mock of the
-  # Cloudflare API (tests/backup-roundtrip/docker-compose.ci.yml): seeds a TXT
-  # record on the second page of the third zone, backs up, changes the record
-  # behind the backup's back, restores the zone with `cloudflare apply --force`
-  # and checks that the record is back. The mock's request journal must also
-  # show the token on every request, both lists paginated, no write by the
-  # backup and no restore write but the one to that record. Every release
-  # rebuilds the image FROM the newest BackupHelper engine - also the one the
-  # base image monitor dispatches - so this runs on every push, dispatch and
-  # relevant PR. Docs-only pushes never reach it (paths-ignore).
+  # Cloudflare API over TLS (tests/backup-roundtrip/docker-compose.ci.yml),
+  # with the plugin's curated default resource types at zone and account
+  # scope: seeds a TXT record, a ruleset rule and a zone setting in the third
+  # zone, backs up, changes all three behind the backup's back, restores the
+  # zone with `cloudflare apply --force` and checks that they are back. The
+  # mock's request journal must also show the token on every request, every
+  # curated type asked for, the lists paginated, the rulesets listed by
+  # cf-terraforming's legacy client through the mock, no write by the backup
+  # and no restore change but the tampered resources; `cloudflare drift` must
+  # report exactly the tampered files and the zone and account must plan
+  # without changes after the restore. Every release rebuilds the image FROM
+  # the newest BackupHelper engine - also the one the base image monitor
+  # dispatches - so this runs on every push, dispatch and relevant PR.
+  # Docs-only pushes never reach it (paths-ignore).
   backup-roundtrip:
     name: 🧪 Backup Round Trip
     needs: [validate-compose, validate-scripts]
@@ -84,13 +89,17 @@ jobs:
     uses: bauer-group/automation-templates/.github/workflows/modules-backup-roundtrip-test.yml@main
     with:
       compose-files: '["docker-compose.yml", "tests/backup-roundtrip/docker-compose.ci.yml"]'
-      # The mock serves DNS records only, so the export is limited to them. A
+      # The CA and certificate of the mock's TLS endpoint, new for every run.
+      prepare-script: 'tests/backup-roundtrip/prepare.sh'
+      # The mock serves every curated default type (data for some, empty lists
+      # for the rest), so the export runs with the plugin's built-in curated
+      # list at both scopes - schema discovery would ask for ~250 types. A
       # generated token is the only one the mock accepts.
       env-overrides: |
         STACK_NAME=cloudflare_roundtrip
-        CLOUDFLARE_API_BASE_URL=http://cf-mock:8080/client/v4
-        CLOUDFLARE_RESOURCE_SCOPE=zone
-        CLOUDFLARE_RESOURCE_TYPES=cloudflare_dns_record
+        CLOUDFLARE_API_BASE_URL=https://cf-mock:8443/client/v4
+        CLOUDFLARE_RESOURCE_DISCOVERY=curated
+        CLOUDFLARE_RESOURCE_SCOPE=all
       generated-secrets: 'CLOUDFLARE_API_TOKEN'
       build-images: '[{"service": "cf-backup", "context": "src/cloudflare-backup"}]'
       backup-service: 'cf-backup'

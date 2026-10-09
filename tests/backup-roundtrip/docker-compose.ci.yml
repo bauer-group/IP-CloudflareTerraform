@@ -3,10 +3,18 @@
 # -----------------------------------------------------------------------------
 # Never part of a deployment. Adds a mock of the Cloudflare API (cf-mock, the
 # stdlib server in ./cf-mock) next to cf-backup, so the release gate can back
-# up, tamper with and restore DNS records without a Cloudflare account. The
-# round-trip job in .github/workflows/docker-release.yml points the cloudflare
-# source at the mock through .env (CLOUDFLARE_API_BASE_URL) and generates
-# CLOUDFLARE_API_TOKEN per run - the only token the mock accepts.
+# up an account with the plugin's curated default resource types, tamper with
+# it and restore a zone without a Cloudflare account. The round-trip job in
+# .github/workflows/docker-release.yml points the cloudflare source at the mock
+# through .env (CLOUDFLARE_API_BASE_URL=https://cf-mock:8443/client/v4) and
+# generates CLOUDFLARE_API_TOKEN per run - the only token the mock accepts.
+#
+# The mock speaks TLS because cf-terraforming's legacy client (rulesets) only
+# calls https. tests/backup-roundtrip/prepare.sh creates a CA and a certificate
+# for cf-mock per run into tests/backup-roundtrip/.tls/; cf-backup trusts that
+# CA through SSL_CERT_DIR, in addition to its own CA bundle. api.cloudflare.com
+# resolves to 127.0.0.1 inside cf-backup, so a request that would bypass the
+# mock fails instead of carrying the token to the real API.
 # Paths are relative to the first compose file, the repository root.
 # See docs/BACKUP.md#round-trip-test-in-ci.
 # =============================================================================
@@ -20,9 +28,13 @@ services:
     environment:
       MOCK_API_TOKEN: ${CLOUDFLARE_API_TOKEN:?generated per run by the round-trip workflow}
       MOCK_PAGE_SIZE: "2"
+      MOCK_PORT: "8443"
+      MOCK_CONTROL_PORT: "8080"
+      MOCK_TLS_DIR: /tls
       PYTHONDONTWRITEBYTECODE: "1"
     volumes:
       - ./tests/backup-roundtrip/cf-mock:/mock:ro
+      - ./tests/backup-roundtrip/.tls/server:/tls:ro
     healthcheck:
       test: ["CMD", "python", "/mock/mockctl.py", "health"]
       interval: 5s
@@ -33,3 +45,12 @@ services:
     depends_on:
       cf-mock:
         condition: service_healthy
+    environment:
+      # Go (cf-terraforming, OpenTofu, the provider) reads every file in it,
+      # OpenSSL (the plugin's Python) the CA under its hash name; both keep
+      # loading the image's own bundle.
+      SSL_CERT_DIR: /etc/cf-mock-ca
+    volumes:
+      - ./tests/backup-roundtrip/.tls/ca:/etc/cf-mock-ca:ro
+    extra_hosts:
+      - "api.cloudflare.com:127.0.0.1"
