@@ -259,10 +259,14 @@ class Store:
         }]
         self.tunnel_configs = {tunnel_id: {
             "tunnel_id": tunnel_id, "version": 1, "source": "cloudflare", "created_at": created,
-            "config": {"ingress": [
-                {"hostname": "app.charlie.example", "service": "http://app:8080"},
-                {"service": "http_status:404"},
-            ]},
+            "config": {
+                "ingress": [
+                    {"hostname": "app.charlie.example", "service": "https://app:8443",
+                     "originRequest": {"noTLSVerify": True}},
+                    {"service": "http_status:404"},
+                ],
+                "originRequest": {"connectTimeout": 30, "httpHostHeader": "app.internal"},
+            },
         }}
         # Load balancing: monitor and pool belong to the account, the load
         # balancer that uses them to charlie.example.
