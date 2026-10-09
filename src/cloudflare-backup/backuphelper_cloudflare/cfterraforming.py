@@ -262,7 +262,14 @@ def adapt_to_provider(resource_type: str, hcl: str) -> str:
       imports the resource without its rules - an empty one would plan a
       write on every restore of every zone. Resources with no rules are
       dropped, like any other type without resources.
+    * ``cloudflare_load_balancer_monitor``: the API returns ``header: {}`` for
+      a monitor without headers, which the provider imports as null - the
+      empty map is dropped. A header added after the backup still shows up
+      in the plan (and is removed by the restore), as the attribute is not
+      computed.
     """
+    if resource_type == "cloudflare_load_balancer_monitor":
+        return re.sub(r"^  header\s*=\s*\{\s*\}[ \t]*\n", "", hcl, flags=re.M)
     if resource_type == "cloudflare_managed_transforms":
         for attribute in ("managed_request_headers", "managed_response_headers"):
             hcl = _enabled_only(hcl, attribute)

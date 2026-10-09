@@ -170,6 +170,17 @@ def test_empty_snippet_rules_are_dropped():
     assert cft.adapt_to_provider("cloudflare_snippet_rules", rules) == rules
 
 
+def test_empty_monitor_header_is_dropped():
+    monitor = ('resource "cloudflare_load_balancer_monitor" "terraform_managed_resource_m1_0" {\n'
+               '  account_id = "acct1"\n  header           = {}\n  interval = 60\n}\n')
+    assert cft.adapt_to_provider("cloudflare_load_balancer_monitor", monitor) == (
+        'resource "cloudflare_load_balancer_monitor" "terraform_managed_resource_m1_0" {\n'
+        '  account_id = "acct1"\n  interval = 60\n}\n')
+    with_header = monitor.replace("header           = {}",
+                                  'header = {\n    Host = ["example.com"]\n  }')
+    assert cft.adapt_to_provider("cloudflare_load_balancer_monitor", with_header) == with_header
+
+
 def test_other_types_are_not_adapted():
     assert cft.adapt_to_provider("cloudflare_dns_record", MANAGED_TRANSFORMS) == MANAGED_TRANSFORMS
 
