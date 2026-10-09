@@ -17,7 +17,10 @@ enumerate the whole provider.
 
 from __future__ import annotations
 
-# Zone-scoped resources (cf-terraforming generate -z <zone_id>).
+# Zone-scoped resources (cf-terraforming generate -z <zone_id>). A type belongs
+# to the scope of its API path in cf-terraforming's endpoint map (/zones/... or
+# /accounts/...): under the other flag that path has an empty id and the type
+# is never exported.
 ZONE_RESOURCE_TYPES: tuple[str, ...] = (
     "cloudflare_dns_record",
     "cloudflare_zone_setting",
@@ -25,8 +28,6 @@ ZONE_RESOURCE_TYPES: tuple[str, ...] = (
     "cloudflare_page_rule",
     "cloudflare_filter",
     "cloudflare_load_balancer",
-    "cloudflare_load_balancer_pool",
-    "cloudflare_load_balancer_monitor",
     "cloudflare_managed_transforms",
     "cloudflare_url_normalization_settings",
     "cloudflare_custom_hostname",
@@ -34,8 +35,9 @@ ZONE_RESOURCE_TYPES: tuple[str, ...] = (
     "cloudflare_authenticated_origin_pulls",
     "cloudflare_bot_management",
     "cloudflare_spectrum_application",
-    "cloudflare_web_analytics_site",
     "cloudflare_workers_route",
+    "cloudflare_snippets",
+    "cloudflare_snippet_rules",
 )
 
 # Account-scoped resources (cf-terraforming generate -a <account_id>).
@@ -50,8 +52,6 @@ ACCOUNT_RESOURCE_TYPES: tuple[str, ...] = (
     "cloudflare_workers_cron_trigger",
     "cloudflare_queue",
     "cloudflare_r2_bucket",
-    "cloudflare_snippets",
-    "cloudflare_snippet_rules",
     "cloudflare_turnstile_widget",
     "cloudflare_zero_trust_access_application",
     "cloudflare_zero_trust_access_policy",
@@ -65,6 +65,11 @@ ACCOUNT_RESOURCE_TYPES: tuple[str, ...] = (
     "cloudflare_zero_trust_tunnel_cloudflared_route",
     "cloudflare_zero_trust_tunnel_cloudflared_virtual_network",
     "cloudflare_zero_trust_gateway_policy",
+    # Load balancer pools and monitors are account objects (a zone's load
+    # balancers reference them), so is the Web Analytics site list.
+    "cloudflare_load_balancer_pool",
+    "cloudflare_load_balancer_monitor",
+    "cloudflare_web_analytics_site",
 )
 
 # Types whose --resource-id list is fetched from the API at runtime (they are
