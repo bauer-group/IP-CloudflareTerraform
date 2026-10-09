@@ -80,7 +80,7 @@ The `cloudflare` source keys:
 | `resource_discovery` | `schema` | `schema` (max coverage) \| `curated` (fast) |
 | `resource_types` / `account_resource_types` / `deny_types` | — | overrides (`resource_types` = `CLOUDFLARE_RESOURCE_TYPES`) |
 | `throttle_rps` | `4` | request/sec ceiling (global limit 1200 / 5 min) |
-| `api_base` | `https://api.cloudflare.com/client/v4` | API endpoint of the zone discovery, cf-terraforming and the OpenTofu provider (`CLOUDFLARE_API_BASE_URL`); keep the default — it exists for tests against a mock API |
+| `api_base` | `https://api.cloudflare.com/client/v4` | API endpoint of the zone discovery, cf-terraforming and the OpenTofu provider (`CLOUDFLARE_API_BASE_URL`); keep the default — it exists for the [mock API round trip](#round-trip-test-in-ci) |
 | `provider_version` | `>= 5.8.2, < 6.0.0` | provider pin |
 | `modern_import_block` | `true` | emit `import{}` blocks |
 
@@ -176,3 +176,62 @@ that a large account with `resource_discovery: schema` issues many calls — pre
 docker compose run --rm cf-backup verify <id>   # sha256 vs manifest
 docker compose run --rm cf-backup show <id>     # manifest (counts, versions)
 ```
+
+## Round-Trip Test in CI
+
+Every release is gated on a real backup and restore — against a mock of the
+Cloudflare API, because a CI runner has no Cloudflare account. The job
+`🧪 Backup Round Trip` in [docker-release.yml](../.github/workflows/docker-release.yml)
+calls the reusable
+[`modules-backup-roundtrip-test.yml`](https://github.com/bauer-group/automation-templates/blob/main/docs/workflows/modules-backup-roundtrip-test.md)
+and runs before the release job, which needs it to pass. It also runs when the
+base image monitor dispatches a release after a new BackupHelper engine image, so
+an engine update ships only after it backed up and restored Cloudflare
+configuration.
+
+The mock ([`tests/backup-roundtrip/cf-mock/server.py`](../tests/backup-roundtrip/cf-mock/server.py),
+Python standard library on `python:3-alpine`) is added by the CI-only override
+[`tests/backup-roundtrip/docker-compose.ci.yml`](../tests/backup-roundtrip/docker-compose.ci.yml).
+It serves exactly the endpoints this image calls for DNS records — zone list,
+record list, record read, record update — with Cloudflare's response envelope,
+accepts only the `CLOUDFLARE_API_TOKEN` generated for the run, returns every list
+in pages of two and records each request in a journal. Its zone and record ids
+are derived at runtime and the token is generated per run; neither is committed.
+
+| Phase | What happens |
+|-------|--------------|
+| Build | `src/cloudflare-backup` is built from the commit, `FROM` the newest engine, with the pytest gate |
+| Start | `docker-compose.yml` plus the override; `.env` sets `CLOUDFLARE_API_BASE_URL=http://cf-mock:8080/client/v4`, `CLOUDFLARE_RESOURCE_SCOPE=zone`, `CLOUDFLARE_RESOURCE_TYPES=cloudflare_dns_record` and a generated `CLOUDFLARE_API_TOKEN` |
+| Seed | A TXT record `_roundtrip.charlie.example` holding the run's marker: the third record of the third zone, so it is on page 2 of both lists. Requests without a token or with a wrong one must be rejected |
+| Back up | `create` must exit `0`, `show` must list `cloudflare` without errors or warnings, `verify` must report `OK` |
+| Tamper | The record's content is changed in the mock, the way an edit in the dashboard would change it |
+| Restore | `cloudflare apply <id> --zone charlie.example --force`: import blocks, plan, apply, re-plan |
+| Check | The record holds the marker again; the snapshot reports 3 zones, 3 files and 0 export errors; the journal shows the token on every request, page 2 of the zone and the record list, no write by the backup, and restore writes only to the tampered record — all successful, one of them putting the marker back |
+| Health | `backuphelper healthcheck` must report the sidecar `healthy` |
+
+The scripts live in [`tests/backup-roundtrip/`](../tests/backup-roundtrip/); the
+assertions are in `cf-mock/mockctl.py`. The check runs three times — after the
+seed (marker present), after the tamper (marker gone) and after the restore
+(marker back) — so a restore that writes nothing cannot pass.
+
+The restore step is `cloudflare apply`, the command an operator runs: the
+engine's own `restore` does not handle the `cloudflare` component (see
+[RESTORE-RUNBOOK.md](RESTORE-RUNBOOK.md)). The test changes the record instead of
+deleting it, because `apply` reconciles existing resources through the
+snapshot's import blocks; a deleted record needs `--dr`.
+
+**Not covered.** The mock knows DNS records only, so the export is limited to
+that type at zone scope: other resource types, account-level resources, `--dr`,
+`drift` and `diff` are not exercised. cf-terraforming's legacy client, which it
+still uses for `cloudflare_ruleset`, ignores `api_base` and would call the real
+API — one more reason for the type limit. The mock follows the shape of the real
+responses for these endpoints, not every rule of the real API (for example, it
+does not validate record contents).
+
+A run takes about 2 minutes. It starts on pushes to `main` (documentation-only
+pushes excluded), on every `workflow_dispatch`, and on pull requests that touch
+`src/`, a compose file, `.env.example`, `tests/backup-roundtrip/` or the release
+workflow. When it fails, the step summary names the failed phase, and the
+`backup-roundtrip-diagnostics` artifact holds the logs of `cf-backup` and
+`cf-mock` (one line per request), `docker compose ps`, the snapshot list and
+the output of `create` and of the restore.

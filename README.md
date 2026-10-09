@@ -80,13 +80,16 @@ Cloudflare API ──▶  │  cloudflare source  ──▶  cf-terraforming gen
   same image so they share it.
 - Snapshot ids are UTC `%Y-%m-%d_%H-%M-%S`; versioning, retention (30 days + GFS)
   and off-site replication are the engine's, not git's.
+- **Every release is gated on a backup round trip** against a mock Cloudflare
+  API: seed a DNS record, back up, change it, `cloudflare apply`, check that it
+  is back ([docs/BACKUP.md](docs/BACKUP.md#round-trip-test-in-ci)).
 
 ## Documentation
 
 | Doc | Topic |
 | --- | --- |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How the pieces fit; the plugin contract; design decisions |
-| [docs/BACKUP.md](docs/BACKUP.md) | Backup mode, config, scope, retention, scheduling |
+| [docs/BACKUP.md](docs/BACKUP.md) | Backup mode, config, scope, retention, scheduling, the CI round trip |
 | [docs/DIFF.md](docs/DIFF.md) | Comparing two backups; drift detection |
 | [docs/RESTORE-RUNBOOK.md](docs/RESTORE-RUNBOOK.md) | Restoring to Cloudflare (plan-gated + `--force`), secret re-injection |
 | [docs/SECRETS-MANIFEST.md](docs/SECRETS-MANIFEST.md) | Resources whose secrets do not round-trip |
