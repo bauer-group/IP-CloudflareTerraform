@@ -39,6 +39,7 @@ from .resources import (
     DEFAULT_DENY_TYPES,
     DUAL_SCOPE_TYPES,
     DYNAMIC_ID_TYPES,
+    IMPORT_ID_ATTRIBUTES,
     LEGACY_CLIENT_TYPES,
     RESOURCE_ID_DEFAULTS,
     SECRET_BEARING_TYPES,
@@ -133,6 +134,13 @@ def _dynamic_ids(resource_type: str, scope: str, scope_id: str, cfg: CloudflareC
     if resource_type == "cloudflare_zero_trust_tunnel_cloudflared_config" and scope == "account":
         return cfapi.list_tunnel_ids(cfg.api_base, token, scope_id, fetch=fetch)
     return []
+
+
+def _append_imports(target_dir: Path, blocks: str) -> None:
+    """Add a type's import blocks to the scope's ``imports.tf``."""
+    if cfterraforming.has_content(blocks):
+        with (target_dir / "imports.tf").open("a", encoding="utf-8") as fh:
+            fh.write(blocks.rstrip() + "\n")
 
 
 def _build_env(cfg: CloudflareConfig, token: str, base_env: Optional[Mapping[str, str]]) -> dict:
@@ -273,16 +281,28 @@ def export(
             result.types_with_content += 1
             if resource_type in SECRET_BEARING_TYPES:
                 secret_types_seen.add(resource_type)
-            if cfg.modern_import_block:
+            if cfg.modern_import_block and resource_type in IMPORT_ID_ATTRIBUTES:
+                # cf-terraforming's own import ids are unusable for these types.
+                blocks, missing = cfterraforming.imports_from_attributes(
+                    resource_type, hcl, IMPORT_ID_ATTRIBUTES[resource_type])
+                if missing:
+                    result.errors.append(
+                        f"{resource_type} ({scope}={scope_id}): no import id for {missing} "
+                        f"(needs {', '.join(IMPORT_ID_ATTRIBUTES[resource_type])})")
+                _append_imports(target_dir, blocks)
+            elif cfg.modern_import_block:
                 try:
                     blocks = cfterraforming.import_blocks(
                         binary=cfg.cfterraforming_binary, resource_type=resource_type, scope=scope,
                         scope_id=scope_id, install_path=workdir, tofu_binary=tofu_bin_abs,
                         env=proc_env, resource_ids=ids, modern_import_block=True,
                         timeout=cfg.timeout, run=run_cf)
-                    if cfterraforming.has_content(blocks):
-                        with (target_dir / "imports.tf").open("a", encoding="utf-8") as fh:
-                            fh.write(blocks.rstrip() + "\n")
+                    blocks, dropped = cfterraforming.reconcile_imports(resource_type, hcl, blocks)
+                    if dropped:
+                        result.skipped.append(
+                            f"{resource_type} imports ({scope}={scope_id}): {dropped} import "
+                            f"block(s) without a generated resource dropped (e.g. managed rulesets)")
+                    _append_imports(target_dir, blocks)
                 except cfterraforming.CfTerraformingError as exc:
                     reason = cfterraforming.benign_skip_reason(exc.stderr)
                     if reason:
