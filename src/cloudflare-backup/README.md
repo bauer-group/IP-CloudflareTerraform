@@ -60,8 +60,9 @@ default is the real API, a non-default value is passed to both tools as
 `--account`). `--dr` recreates from scratch (no import blocks); `--force` runs
 unattended. Resources whose secret payload does not round-trip (Access service
 tokens, tunnels, certificates, API tokens, Worker secrets) are reported and must
-be re-injected — the engine's `restore <id>` only rehydrates the HCL files, it
-does not push to Cloudflare.
+be re-injected. The engine's `restore <id>` does not handle the `cloudflare`
+component (`restore finished with errors`, nothing changed); `download <id>
+<dir>` copies a snapshot's archive out of the volume.
 
 > **Not covered:** data-plane content (KV values, R2 objects, D1 rows) is not
 > configuration and is out of scope.

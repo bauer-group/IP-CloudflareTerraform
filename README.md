@@ -18,7 +18,7 @@ plugin). No local toolchain beyond Docker.
 | Mode | How | What it does |
 | --- | --- | --- |
 | **Backup** (scheduled) | `docker compose up -d cf-backup` | Engine scheduler exports the account on cron → deterministic `tar.gz` + sha256 manifest → **off-site S3** → **retention 30 days + GFS** → alerting. |
-| **CLI** (interactive) | `docker compose run --rm cf-backup <verb>` | Engine verbs (`--now`, `list`, `verify`, `restore`, `prune`) **plus** `cloudflare diff` / `apply` / `drift` / `export`. |
+| **CLI** (interactive) | `docker compose run --rm cf-backup <verb>` | Engine verbs (`--now`, `list`, `verify`, `download`, `prune`) **plus** `cloudflare diff` / `apply` / `drift` / `export`. |
 
 ## Quick start
 
@@ -41,7 +41,7 @@ docker compose up -d cf-backup
 cf-backup --now                       # export + snapshot now
 cf-backup list                        # list snapshots (local + off-site)
 cf-backup verify <id>                 # sha256 integrity check
-cf-backup restore <id>                # rehydrate the HCL files from a snapshot (not a push)
+cf-backup download <id> <dir>         # copy a snapshot's archive + manifest out of /data
 cf-backup prune                       # apply retention now
 cf-backup config                      # print effective config (secrets redacted)
 
@@ -53,6 +53,10 @@ cf-backup cloudflare export --out <dir>                         # ad-hoc HCL exp
 ```
 
 (Prefix each with `docker compose run --rm`.)
+
+Restoring means `cloudflare apply`. The engine's own `restore <id>` does not
+handle the `cloudflare` component — the source implements no engine restore, so
+it ends with `restore finished with errors` (exit 1) and changes nothing.
 
 ## How it works
 

@@ -4,8 +4,12 @@ Restore = pushing a snapshot's HCL back to Cloudflare with `tofu apply`. This is
 **destructive** and therefore **plan-gated** by default: plan → human review →
 apply → re-plan. One scope (a single zone, or an account) per run.
 
-> The engine's own `restore <id>` only rehydrates the HCL files onto disk; it does
-> **not** push to Cloudflare. Use `cloudflare apply` for that.
+> The engine's own `restore <id>` does **not** restore this stack: the `cloudflare`
+> source implements no engine restore, so the command logs
+> `restore of component cloudflare failed: cloudflare source does not support restore`,
+> ends with `restore finished with errors` (exit 1) and changes nothing. Use
+> `cloudflare apply` to push a snapshot to Cloudflare, and `download <id> <dir>` to
+> copy a snapshot's archive out of the volume.
 
 ## What a snapshot contains
 
