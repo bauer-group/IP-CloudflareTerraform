@@ -130,6 +130,19 @@ def test_reconcile_imports_leaves_unreadable_output_alone():
     assert cft.reconcile_imports("cloudflare_dns_record", "resource x {}", imports) == (imports, 0)
 
 
+# An import block in a layout the rewrites do not read (an extra attribute).
+OTHER_LAYOUT = ('import {\n  to       = cloudflare_ruleset.terraform_managed_resource_bbb_0\n'
+                '  id       = "zones/z1/bbb"\n  provider = cloudflare.zone\n}\n')
+
+
+def test_reconcile_imports_keeps_blocks_in_another_layout():
+    # Rebuilding the file from the blocks it can read would lose this one.
+    hcl = 'resource "cloudflare_ruleset" "terraform_managed_resource_bbb_0" {\n}\n'
+    imports = _imports(
+        ("cloudflare_ruleset.terraform_managed_resource_aaa_0", "zones/z1/aaa")) + OTHER_LAYOUT
+    assert cft.reconcile_imports("cloudflare_ruleset", hcl, imports) == (imports, 0)
+
+
 # cf-terraforming 0.27 output (hclwrite layout) for a zone's managed transforms.
 MANAGED_TRANSFORMS = '''resource "cloudflare_managed_transforms" "terraform_managed_resource_z1_0" {
   zone_id = "z1"
@@ -250,3 +263,10 @@ def test_drop_imports_with_the_scope_id_twice():
     assert dropped == 1
     assert blocks == _imports(("cloudflare_list.terraform_managed_resource_l1_0", "acct1/l1"))
     assert cft.drop_imports_with_id(blocks, "acct1/acct1") == (blocks, 0)
+
+
+def test_drop_imports_keeps_blocks_in_another_layout():
+    imports = _imports(
+        ("cloudflare_turnstile_widget.terraform_managed_resource_acct1_0", "acct1/acct1")
+    ) + OTHER_LAYOUT
+    assert cft.drop_imports_with_id(imports, "acct1/acct1") == (imports, 0)
