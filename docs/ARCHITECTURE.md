@@ -71,7 +71,10 @@ so snapshot access can never diverge from how the engine wrote it.
 Only `source.py`, `snapshot.py` and `commands.py` import the engine (provided by
 the base image). The core — `config`, `cfapi`, `tofu`, `cfterraforming`,
 `export`, `diff`, `apply`, `resources` — imports nothing from the engine, so it
-unit-tests on any host (38 tests). Every subprocess and HTTP call is injectable.
+unit-tests on any host; the source tests need the engine and run in the image
+build. Every subprocess and HTTP call is injectable. Beyond the unit tests, every
+release is gated on a backup round trip of the built image against a mock
+Cloudflare API ([BACKUP.md](BACKUP.md#round-trip-test-in-ci)).
 
 ## Key design decisions
 

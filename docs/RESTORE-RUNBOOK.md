@@ -67,6 +67,10 @@ docker compose run --rm -e CLOUDFLARE_API_TOKEN cf-backup \
 For automated reconcile, replace step 3 with `--force` (skips the prompt). Never
 run `--force` against production without first reviewing a `--plan-only` run.
 
+This drift-correction path (`--zone <z> --force`) runs on every release against
+a mock Cloudflare API, for DNS records — see
+[BACKUP.md](BACKUP.md#round-trip-test-in-ci).
+
 ## MANDATORY: re-inject non-round-tripping secrets
 
 Some resources export their **definition** but not their **secret payload** — the
