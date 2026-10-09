@@ -139,6 +139,9 @@ def drift_cmd(
             typer.echo("error: fresh export produced no files "
                        f"({'; '.join(result_export.errors[:2]) or 'unknown'})", err=True)
             raise typer.Exit(2)
+        if zone and not result_export.zones:
+            typer.echo(f"error: zone {zone!r} is not visible to the token", err=True)
+            raise typer.Exit(2)
         # With --zone the fresh export holds that zone only: the other zones of
         # the baseline are out of scope, not removed.
         zones = [export_mod.slug(name) for name in result_export.zones] if zone else None
