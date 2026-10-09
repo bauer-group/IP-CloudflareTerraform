@@ -184,3 +184,26 @@ def test_imports_from_attributes_builds_provider_ids():
     blocks, missing = cft.imports_from_attributes(rtype, hcl, ("account_id", "tunnel_id"))
     assert blocks == _imports((f"{rtype}.terraform_managed_resource_acct1_0", "acct1/t1"))
     assert missing == ["terraform_managed_resource_acct1_1"]
+
+
+def test_imports_from_attributes_uses_defaults():
+    hcl = ('resource "cloudflare_r2_bucket" "terraform_managed_resource_acct1_0" {\n'
+           '  account_id = "acct1"\n  name       = "assets"\n}\n\n'
+           'resource "cloudflare_r2_bucket" "terraform_managed_resource_acct1_1" {\n'
+           '  account_id   = "acct1"\n  jurisdiction = "eu"\n  name         = "logs"\n}\n')
+    blocks, missing = cft.imports_from_attributes(
+        "cloudflare_r2_bucket", hcl, ("account_id", "name", "jurisdiction=default"))
+    assert blocks == _imports(
+        ("cloudflare_r2_bucket.terraform_managed_resource_acct1_0", "acct1/assets/default"),
+        ("cloudflare_r2_bucket.terraform_managed_resource_acct1_1", "acct1/logs/eu"))
+    assert missing == []
+
+
+def test_drop_imports_with_the_scope_id_twice():
+    imports = _imports(
+        ("cloudflare_turnstile_widget.terraform_managed_resource_acct1_0", "acct1/acct1"),
+        ("cloudflare_list.terraform_managed_resource_l1_0", "acct1/l1"))
+    blocks, dropped = cft.drop_imports_with_id(imports, "acct1/acct1")
+    assert dropped == 1
+    assert blocks == _imports(("cloudflare_list.terraform_managed_resource_l1_0", "acct1/l1"))
+    assert cft.drop_imports_with_id(blocks, "acct1/acct1") == (blocks, 0)

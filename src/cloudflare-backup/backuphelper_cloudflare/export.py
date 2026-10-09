@@ -303,6 +303,13 @@ def export(
                         result.skipped.append(
                             f"{resource_type} imports ({scope}={scope_id}): {dropped} import "
                             f"block(s) without a generated resource dropped (e.g. managed rulesets)")
+                    blocks, unusable = cfterraforming.drop_imports_with_id(
+                        blocks, f"{scope_id}/{scope_id}")
+                    if unusable:
+                        result.errors.append(
+                            f"{resource_type} ({scope}={scope_id}): {unusable} resource(s) "
+                            f"without an import id - cf-terraforming gives the {scope} id "
+                            f"instead; a restore would create them rather than import them")
                     _append_imports(target_dir, blocks)
                 except cfterraforming.CfTerraformingError as exc:
                     reason = cfterraforming.benign_skip_reason(exc.stderr)

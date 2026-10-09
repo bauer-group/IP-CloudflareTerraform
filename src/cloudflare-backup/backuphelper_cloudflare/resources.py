@@ -86,9 +86,10 @@ LEGACY_CLIENT_TYPES: frozenset[str] = frozenset({"cloudflare_ruleset"})
 # Types whose API object has no "id", so cf-terraforming's import blocks carry
 # "<account_id>/<account_id>" and OpenTofu cannot import them. Their import ids
 # are built from these attributes of each generated resource instead, in the
-# provider's import format.
+# provider's import format ("name=default": the value when the HCL omits it).
 IMPORT_ID_ATTRIBUTES: dict[str, tuple[str, ...]] = {
     "cloudflare_zero_trust_tunnel_cloudflared_config": ("account_id", "tunnel_id"),
+    "cloudflare_r2_bucket": ("account_id", "name", "jurisdiction=default"),
 }
 
 # The stable set used to classify scope when enumerating the provider schema.
