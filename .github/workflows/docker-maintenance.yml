@@ -15,7 +15,11 @@
 #
 # A PR whose files do not start docker-release.yml stays open as "not
 # tested". The merge is made with GITHUB_TOKEN and starts no push workflow,
-# so it does not release by itself.
+# so after a merge - and only then - docker-release.yml is dispatched on
+# main and waited for: it validates and round-trips the merged main again,
+# releases it (fix(docker) / fix(deps) commits cut a patch release) and
+# only then builds and pushes the image. A release run that does not
+# succeed turns this job red.
 # =============================================================================
 
 name: 🔧 Docker Maintenance
@@ -25,8 +29,11 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: write       # merge
+  pull-requests: write  # approve, read the PR
+  checks: read          # check runs and suites
+  statuses: read        # commit statuses
+  actions: write        # dispatch the release; read workflow runs
 
 jobs:
   maintenance:
@@ -40,4 +47,7 @@ jobs:
       # paths (src/**) cover the Dockerfile and pyproject.toml Dependabot
       # updates in src/cloudflare-backup/.
       required-workflows: '.github/workflows/docker-release.yml'
+      # Release the merged update: dispatched on main after the merge, its
+      # run awaited (release-wait-minutes, default 60; a run takes 5-10 min).
+      release-workflow: '.github/workflows/docker-release.yml'
     secrets: inherit
