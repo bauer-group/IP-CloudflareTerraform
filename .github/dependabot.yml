@@ -4,6 +4,14 @@
 # Monitors GitHub Actions, Docker base images and Python deps for updates.
 # Combined with docker-maintenance.yml for auto-merge and check-base-images.yml
 # for digest-pinned upstream tracking on floating tags.
+#
+# The commit-message prefix decides whether a merged update is released
+# (docker-maintenance.yml dispatches docker-release.yml after the merge):
+#   fix(docker) / fix(deps)  change the shipped cloudflare-backup image
+#                            -> PATCH release, image rebuilt and pushed
+#   chore(deps-dev)          Python deps Dependabot classes as development
+#                            -> no release
+#   chore(ci)                GitHub Actions -> no release, merged by hand
 # =============================================================================
 
 version: 2
@@ -29,7 +37,7 @@ updates:
     schedule: { interval: "weekly", day: "sunday", time: "06:30", timezone: "Etc/UTC" }
     labels: ["dependencies", "docker", "dependabot"]
     commit-message:
-      prefix: "chore(docker)"
+      prefix: "fix(docker)"
 
   # ── Python dependencies (plugin) ──────────────────────────────────────────
   - package-ecosystem: "pip"
@@ -38,4 +46,5 @@ updates:
     schedule: { interval: "weekly", day: "sunday", time: "06:30", timezone: "Etc/UTC" }
     labels: ["dependencies", "python", "dependabot"]
     commit-message:
-      prefix: "chore(deps)"
+      prefix: "fix(deps)"
+      prefix-development: "chore(deps-dev)"
