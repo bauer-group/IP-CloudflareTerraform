@@ -4,6 +4,13 @@ All notable changes to this project are documented here. This file is maintained
 automatically by [semantic-release](https://github.com/semantic-release/semantic-release)
 on every release to `main`.
 
+## [0.2.8](https://github.com/bauer-group/IP-CloudflareTerraform/compare/v0.2.7...v0.2.8) (2026-10-28)
+
+### 🔧 Maintenance
+
+* **deps:** update base image backuphelper [skip ci] ([037e1af](https://github.com/bauer-group/IP-CloudflareTerraform/commit/037e1af0ddf490360c2eeaf671a0c765bb3b3812))
+* synced Dockerfile versions to 0.2.7 [skip ci] ([6e8a785](https://github.com/bauer-group/IP-CloudflareTerraform/commit/6e8a785649024792513ab4dff8ae1fbf08f644f5))
+
 ## [0.2.7](https://github.com/bauer-group/IP-CloudflareTerraform/compare/v0.2.6...v0.2.7) (2026-10-23)
 
 ### 🔧 Maintenance
