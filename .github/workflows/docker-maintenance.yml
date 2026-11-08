@@ -3,9 +3,10 @@
 # =============================================================================
 # Every Dependabot PR reaches this workflow (no paths: filter), so each one
 # gets an explicit decision and annotation instead of silently staying open.
-# A patch update is merged only after the pull_request run of
-# docker-release.yml passed on its head commit - the image build (with the
-# plugin's pytest gate) and both backup round trips:
+# A patch or minor update (majors stay open; a 0.x minor counts as major)
+# is merged only after the pull_request run of docker-release.yml passed
+# on its head commit - the image build (with the plugin's pytest gate) and
+# both backup round trips:
 #
 #   docker          src/cloudflare-backup/Dockerfile      the image is built
 #   pip             src/cloudflare-backup/pyproject.toml  pip install + pytest
