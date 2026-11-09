@@ -1,9 +1,9 @@
 # =============================================================================
 # Release & Docker Build
 # =============================================================================
-# Single pipeline (mirrors the CS-* fleet): validate → backup round trip →
-# semantic-release → build & push the cloudflare-backup image to GHCR → sync
-# the Dockerfile version.
+# Single pipeline (mirrors the CS-* fleet): validate → backup round trip +
+# image build gate → semantic-release → build & push the cloudflare-backup
+# image to GHCR → sync the Dockerfile version.
 # Replaces a standalone semantic-release workflow so there is exactly one release
 # path on main.
 # =============================================================================
@@ -163,30 +163,70 @@ jobs:
     secrets: inherit
 
   # ============================================
-  # Release (only on main push / dispatch)
+  # Image Build Gate (every event, never pushed)
+  # ============================================
+
+  # Builds the cloudflare-backup image from this commit on every event - the
+  # PR CI that docker-maintenance.yml waits for, and on a push or dispatch the
+  # gate of the release: a failed build skips the release and the image push.
+  docker-build-cloudflare-backup-validate:
+    name: 🔨 Validate cloudflare-backup Build
+    needs: [validate-compose, validate-scripts]
+    if: |
+      needs.validate-compose.result == 'success' &&
+      needs.validate-scripts.result == 'success'
+    uses: bauer-group/automation-templates/.github/workflows/docker-build.yml@main
+    with:
+      publish-to: 'ghcr'
+      ghcr-image-name: 'bauer-group/IP-CloudflareTerraform/cloudflare-backup'
+      auto-tags: true
+      dockerfile-path: './src/cloudflare-backup/Dockerfile'
+      docker-context: './src/cloudflare-backup'
+      platforms: 'linux/amd64'
+      push: false
+      security-scan: false
+      security-fail-on: 'CRITICAL'
+    secrets: inherit
+
+  # ============================================
+  # Release (push to main or dispatch)
   # ============================================
   release:
     name: 📦 Create Semantic Release
-    needs: [validate-compose, validate-scripts, backup-roundtrip, backup-roundtrip-upgrade]
+    needs:
+      - validate-compose
+      - validate-scripts
+      - backup-roundtrip
+      - backup-roundtrip-upgrade
+      - docker-build-cloudflare-backup-validate
     if: |
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
       needs.validate-compose.result == 'success' &&
       needs.validate-scripts.result == 'success' &&
       needs.backup-roundtrip.result == 'success' &&
-      needs.backup-roundtrip-upgrade.result == 'success'
+      needs.backup-roundtrip-upgrade.result == 'success' &&
+      needs.docker-build-cloudflare-backup-validate.result == 'success'
     uses: bauer-group/automation-templates/.github/workflows/modules-semantic-release.yml@main
     with:
       target-branch: 'main'
+      # Release the commit this run validated, round-tripped and built - the
+      # image job below builds it too. Unpinned, the release would take the
+      # tip of main: a push that landed meanwhile would be tagged untested
+      # and be missing from the image. Pinned, nothing is released once main
+      # has moved on, and the run for the newer main releases both.
+      ref: ${{ github.sha }}
       dry-run: false
       force-release: ${{ inputs.force-release || false }}
     secrets: inherit
 
   # ============================================
-  # cloudflare-backup (meta image on the BackupHelper engine)
+  # cloudflare-backup Publish (only after a release)
   # ============================================
   docker-build-cloudflare-backup-release:
     name: 🐳 Build & Push cloudflare-backup
     needs: release
+    # Only a run that created a release publishes - never a PR, a branch
+    # dispatch or a run that released nothing.
     if: needs.release.outputs.release-created == 'true'
     uses: bauer-group/automation-templates/.github/workflows/docker-build.yml@main
     with:
@@ -209,23 +249,6 @@ jobs:
       push: true
       generate-sbom: true
       sync-dockerhub-readme: true
-      security-scan: false
-      security-fail-on: 'CRITICAL'
-    secrets: inherit
-
-  docker-build-cloudflare-backup-pr:
-    name: 🔨 Validate cloudflare-backup Build (PR)
-    needs: [validate-compose, validate-scripts]
-    if: github.event_name == 'pull_request'
-    uses: bauer-group/automation-templates/.github/workflows/docker-build.yml@main
-    with:
-      publish-to: 'ghcr'
-      ghcr-image-name: 'bauer-group/IP-CloudflareTerraform/cloudflare-backup'
-      auto-tags: true
-      dockerfile-path: './src/cloudflare-backup/Dockerfile'
-      docker-context: './src/cloudflare-backup'
-      platforms: 'linux/amd64'
-      push: false
       security-scan: false
       security-fail-on: 'CRITICAL'
     secrets: inherit
