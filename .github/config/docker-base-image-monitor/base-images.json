@@ -5,14 +5,14 @@
     {
       "name": "backuphelper",
       "image": "ghcr.io/bauer-group/cs-backuphelper/backuphelper",
-      "tag": "latest",
+      "dockerfile": "src/cloudflare-backup/Dockerfile",
       "variable": "BACKUPHELPER_LATEST_DIGEST",
       "description": "Central BackupHelper engine — base for src/cloudflare-backup; rebuilds when the digest moves."
     },
     {
       "name": "opentofu",
       "image": "ghcr.io/opentofu/opentofu",
-      "tag": "1.12.4-minimal",
+      "dockerfile": "src/cloudflare-backup/Dockerfile",
       "variable": "OPENTOFU_MINIMAL_DIGEST",
       "description": "OpenTofu minimal image — the tofu binary is multi-stage-copied into cloudflare-backup. Pinned tag (>= 1.11 for provider-v5 write-only attributes)."
     }
